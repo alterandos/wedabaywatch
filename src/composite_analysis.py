@@ -1,0 +1,614 @@
+import rasterio
+from rasterio.windows import Window
+from rasterio.merge import merge
+from rasterio.mask import mask
+from rasterio.features import geometry_mask
+from sklearn.linear_model import LinearRegression
+from scipy.stats import linregress
+
+import contextily as ctx
+import random
+
+import geopandas as gpd
+import pandas as pd
+import numpy as np
+from src import pipeline
+import matplotlib.pyplot as plt
+
+import os
+import glob
+
+# QA bit masks (Landsat Collection 2 Level 2)
+QA_BITS = {
+    'cloud': 1 << 3,
+    'cloud_shadow': 1 << 4,
+    'cirrus': 1 << 2
+}
+
+def compute_cloud_cover_all_scenes(clipped_folder, rois_folder):
+    """
+    Compute cloud fraction (%) for each ROI across all scenes.
+
+    Parameters
+    ----------
+    clipped_folder : str
+        Folder containing scene subfolders. Each subfolder has a 'qa_pixel' file.
+    rois_folder : str
+        Folder containing ROI shapefiles.
+
+    Returns
+    -------
+    pd.DataFrame
+        Rows = scene names, Columns = ROIs, Values = cloud fraction (%)
+    """
+    # Get scene folders
+    scene_folders = [f for f in os.listdir(clipped_folder) if os.path.isdir(os.path.join(clipped_folder, f))]
+
+    # Precompute ROI masks using the first scene as reference
+    first_scene_qa = os.path.join(clipped_folder, scene_folders[0], 'qa_pixel')
+    roi_masks = compute_roi_masks(rois_folder, first_scene_qa)
+    roi_names = list(roi_masks.keys())
+
+    # Initialize results dict
+    cloud_data = {}
+
+    for scene_name in scene_folders:
+        qa_path = os.path.join(clipped_folder, scene_name, 'qa_pixel')
+        cloud_mask = get_cloud_mask(qa_path)  # True = cloud pixels
+
+        # Compute cloud fraction per ROI
+        scene_cloud_fractions = {}
+        for roi_name, roi_mask in roi_masks.items():
+            combined_mask = roi_mask  # ROI mask
+            n_cloud = np.sum(cloud_mask & combined_mask)
+            n_total = np.sum(combined_mask)
+            fraction = (n_cloud / n_total * 100) if n_total > 0 else np.nan
+            scene_cloud_fractions[roi_name] = fraction
+
+        cloud_data[scene_name] = scene_cloud_fractions
+
+    # Convert to DataFrame
+    df = pd.DataFrame.from_dict(cloud_data, orient='index')
+    return df
+
+
+def get_roi_shapefiles(rois_folder):
+    """
+    Returns a dict mapping ROI names (from .shp filenames) to paths.
+    """
+    roi_shp_paths = {}
+    for shp_file in glob.glob(os.path.join(rois_folder, '*.shp')):
+        roi_name = os.path.splitext(os.path.basename(shp_file))[0]
+        roi_shp_paths[roi_name] = shp_file
+    return roi_shp_paths
+
+def get_cloud_mask(qa_path, cloud=True, cloud_shadow=True, cirrus=False):
+    """
+    Returns a boolean mask of cloud pixels from a QA_PIXEL raster.
+    
+    Parameters
+    ----------
+    qa_path : str
+        Path to QA_PIXEL raster.
+    
+    Returns
+    -------
+    np.ndarray
+        Boolean array where True indicates a cloud, cloud shadow, or cirrus pixel.
+    """
+    with rasterio.open(qa_path) as src:
+        qa = src.read(1) # [0, 0, 1, 0]
+        nodata = src.nodata
+
+        cloud_mask = (
+            (
+                  (qa & QA_BITS['cloud'])
+                | (qa & QA_BITS['cloud_shadow'] & cloud_shadow)
+                | (qa & QA_BITS['cirrus'] & cirrus)
+            ) > 0
+        )
+
+        if nodata is not None:
+            cloud_mask[qa == nodata] = True  # treat nodata as "ignore"
+
+    return cloud_mask
+
+def mask_clouds_in_scene_raster(raster_path, qa_path):
+    """
+    Mask clouds and nodata for a single raster of a scene using QA_PIXEL.
+
+    Parameters
+    ----------
+    raster_path : str
+        Path to the raster to mask (e.g., NDVI, NDBI, etc.).
+    qa_path : str
+        Path to the QA_PIXEL raster.
+
+    Returns
+    -------
+    np.ndarray
+        Masked array (clouds and nodata are set to np.nan) with same shape as input raster.
+    """
+    # Get cloud mask
+    cloud_mask = get_cloud_mask(qa_path)
+
+    with rasterio.open(raster_path) as src:
+        arr = src.read(1).astype(float)
+        nodata = src.nodata
+
+        # Mask clouds
+        arr[cloud_mask] = np.nan
+
+        # Mask nodata if set
+        if nodata is not None:
+            arr[arr == nodata] = np.nan
+
+    return arr
+
+def compute_roi_mask_in_scene(roi_shapefile, reference_scene_path):
+    """
+    Compute a boolean mask for a single ROI shapefile on the grid of a reference scene.
+
+    Parameters
+    ----------
+    roi_shapefile : str
+        Path to the ROI shapefile.
+    reference_scene_path : str
+        Path to the reference raster scene.
+
+    Returns
+    -------
+    np.ndarray
+        Boolean array (True = inside ROI)
+    """
+    with rasterio.open(reference_scene_path) as src:
+        shape = (src.height, src.width)
+        transform = src.transform
+
+    gdf = gpd.read_file(roi_shapefile)
+    mask = np.zeros(shape, dtype=bool)
+
+    for geom in gdf.geometry:
+        mask |= rasterio.features.geometry_mask([geom], transform=transform, invert=True, out_shape=shape)
+
+    return mask
+
+def compute_roi_masks(rois_folder, reference_scene_path):
+    """
+    Compute boolean masks for all ROI shapefiles in a folder on the grid of a reference scene.
+
+    Parameters
+    ----------
+    rois_folder : str
+        Folder containing ROI shapefiles.
+    reference_scene_path : str
+        Path to the reference raster scene.
+
+    Returns
+    -------
+    dict
+        Mapping: ROI name -> boolean mask (True = inside ROI)
+    """
+    roi_paths = {os.path.splitext(os.path.basename(f))[0]: f
+                 for f in glob.glob(os.path.join(rois_folder, '*.shp'))}
+    
+    roi_masks = {}
+    for roi_name, shp_path in roi_paths.items():
+        roi_masks[roi_name] = compute_roi_mask_in_scene(shp_path, reference_scene_path)
+
+    return roi_masks
+
+def compute_cloud_fraction_per_roi(roi_masks, cloud_mask):
+    """
+    Compute the fraction of pixels that are cloudy or nodata in each ROI.
+
+    Parameters
+    ----------
+    roi_masks : dict
+        Mapping: ROI name -> boolean mask (True = inside ROI)
+    cloud_mask : np.ndarray
+        Boolean array of the same shape as the scene (True = cloud/nodata)
+
+    Returns
+    -------
+    cloud_fraction : dict
+        ROI name -> fraction of pixels that are cloudy or nodata (0-1)
+    """
+    cloud_fraction = {}
+    for roi_name, roi_mask in roi_masks.items():
+        n_total = roi_mask.sum()
+        n_cloudy = (roi_mask & cloud_mask).sum()
+        cloud_fraction[roi_name] = n_cloudy / n_total if n_total > 0 else np.nan
+
+    return cloud_fraction
+
+def compute_index_stats_for_roi_cloud_masked(index_path, combined_masks):
+    """
+    Compute per-ROI statistics for a single index raster given precomputed ROI+cloud masks.
+
+    Parameters
+    ----------
+    index_path : str
+        Path to a single index raster (ENVI or GeoTIFF).
+    combined_masks : dict
+        ROI name -> boolean array (True = usable pixel: inside ROI AND not cloudy).
+
+    Returns
+    -------
+    dict
+        ROI name -> dict of statistics (mean, std, min, max, count)
+    """
+    stats = {}
+
+    with rasterio.open(index_path) as src:
+        data = src.read(1).astype(float)
+        nodata = src.nodata
+        if nodata is not None:
+            data[data == nodata] = np.nan
+
+    for roi_name, mask in combined_masks.items():
+        roi_data = np.where(mask, data, np.nan)
+        stats[roi_name] = {
+            'mean': np.nanmean(roi_data),
+            'std': np.nanstd(roi_data),
+            'min': np.nanmin(roi_data),
+            'max': np.nanmax(roi_data),
+            'count': np.count_nonzero(~np.isnan(roi_data))
+        }
+
+    return stats
+
+def compute_scene_roi_stats(derived_folder, rois_folder, clipped_folder, composites):
+    """
+    Compute ROI statistics for all scenes and indices in a derived folder, masking clouds.
+
+    Parameters
+    ----------
+    derived_folder : str
+        Folder containing scene subfolders (one per date/scene).
+    rois_folder : str
+        Folder containing ROI shapefiles.
+    clipped_folder : str
+        Folder containing QA_PIXEL files for cloud masking (same subfolder names as scenes).
+
+    Returns
+    -------
+    pd.DataFrame
+        Rows = scenes, columns = ROIs. Each cell = dict of statistics including cloud_fraction.
+    """
+    all_stats = {}
+
+    # Get all scene folders
+    scene_folders = [f for f in os.listdir(derived_folder) if os.path.isdir(os.path.join(derived_folder, f))]
+
+    for scene_name in scene_folders:
+        scene_path = os.path.join(derived_folder, scene_name)
+        qa_path = os.path.join(clipped_folder, scene_name, 'qa_pixel')
+
+        # 1. Precompute ROI masks on this scene
+        roi_masks = compute_roi_masks(rois_folder, qa_path)
+
+        # 2. Get cloud mask
+        cloud_mask = get_cloud_mask(qa_path)  # True = cloud pixels
+
+        # 3. Combine ROI masks with cloud mask (positive mask = not cloud)
+        combined_masks = {roi: roi_mask & (~cloud_mask) for roi, roi_mask in roi_masks.items()}
+
+        # 4. Compute cloud fraction per ROI
+        cloud_fractions = compute_cloud_fraction_per_roi(roi_masks, cloud_mask)
+
+        # 5. Compute stats for each index in this scene
+        scene_stats = {}
+
+        for roi_name, mask in combined_masks.items():
+            roi_stats = {'cloud_fraction': cloud_fractions[roi_name]}
+            for composite_name in composites:
+                index_path = os.path.join(scene_path, composite_name)  # no extension
+                stats = compute_index_stats_for_roi_cloud_masked(index_path, {roi_name: mask})
+                roi_stats[composite_name] = stats[roi_name]
+            scene_stats[roi_name] = roi_stats
+
+        all_stats[scene_name] = scene_stats
+
+    # Convert to dataframe
+    df = pd.DataFrame.from_dict(all_stats, orient='index')
+    return df
+
+def filter_all_stats_on_threshold_value(df, threshold_value, threshold_statistic):
+    """
+    Returns a new DataFrame keeping only ROIs in each scene where cloud_fraction <= max_cloud_fraction.
+    ROIs exceeding the threshold will be set to NaN (or removed).
+    """
+    df_filtered = df.copy()
+    
+    for scene in df.index:
+        for roi in df.columns:
+            stats_dict = df.at[scene, roi]
+            if stats_dict[threshold_statistic] > threshold_value:
+                df_filtered.at[scene, roi] = None  # or np.nan
+
+    return df_filtered
+
+def extract_stat_df(df, composite, stat):
+    """
+    Extract a DataFrame of a specific composite and stat across all scenes and ROIs,
+    safely handling None values and case-insensitive keys.
+    """
+    composite_lower = composite.lower()
+    stat_lower = stat.lower()
+
+    def get_stat(cell):
+        if not isinstance(cell, dict):
+            return np.nan
+        # Find composite key (case-insensitive)
+        comp_key = next((k for k in cell.keys() if k.lower() == composite_lower), None)
+        if comp_key is None or not isinstance(cell[comp_key], dict):
+            return np.nan
+        # Find stat key (case-insensitive)
+        stat_key = next((k for k in cell[comp_key].keys() if k.lower() == stat_lower), None)
+        if stat_key is None:
+            return np.nan
+        return cell[comp_key][stat_key]
+
+    return df.map(get_stat)
+
+def plot_composite_over_time(df, composite, stat, rois=None):
+    """
+    Plot the change of a given composite/stat over time for selected or all ROIs.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Multi-index dataframe (scenes × ROIs) with stats per composite.
+    composite : str
+        Name of composite (e.g. 'NDVI', 'EVI').
+    stat : str
+        Statistic to plot (e.g. 'mean', 'max').
+    rois : list, optional
+        Subset of ROIs to include (case-insensitive, default = all).
+    """
+    composite = composite.upper()
+    stat = stat.lower()
+
+    # Extract sub-DF
+    stat_df = extract_stat_df(df, composite, stat)
+
+    # Filter ROIs if provided
+    if rois is not None:
+        rois = [r.lower() for r in rois]
+        stat_df = stat_df[[c for c in stat_df.columns if c.lower() in rois]]
+
+    plt.figure(figsize=(12, 8))
+
+    for roi in stat_df.columns:
+        y = stat_df[roi].replace({None: np.nan}).astype(float)
+        y_line = y.interpolate(method='linear', limit_direction='both')
+        x = stat_df.index
+
+        plt.plot(x, y_line, label=roi.replace('_', ' ').upper())
+        plt.scatter(x[y.notna()], y[y.notna()], marker='o', s=100)
+
+    plt.xlabel('Scene')
+    plt.ylabel(f'{composite} {stat.capitalize()}')
+    plt.title(f'{composite} {stat.capitalize()} Over Time per ROI')
+    plt.xticks(rotation=45)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    plt.show()
+
+    return stat_df
+
+def plot_time_series_with_trend(time_index, y_values, trend_values, trend_stats=None, title='', ylabel=''):
+    """
+    Plot a time series with a linear trend line.
+
+    Parameters
+    ----------
+    time_index : pd.DatetimeIndex
+        Datetimes corresponding to the observations.
+    y_values : np.ndarray or pd.Series
+        Observed values.
+    trend_values : np.ndarray
+        Fitted trend values at the same time points as y_values.
+    roi_name : str
+        Name of the ROI for labeling.
+    slope : float, optional
+        Slope of the trend line.
+    p_value : float, optional
+        P-value of the trend for annotation.
+    """
+    plt.figure(figsize=(8, 4))
+    plt.plot(time_index, y_values, 'o', label='Data')
+    label = 'Trend:\n    '
+    if trend_stats is not None:
+        label += f'{'\n    '.join([f'{k}: {v}' for k, v in trend_stats.items()])}'
+    plt.plot(time_index, trend_values, '-', color='red', label=label)
+    plt.title(title)
+    plt.xlabel('Time')
+    plt.ylabel(ylabel)
+    plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.tight_layout()
+    plt.show()
+
+
+def calculate_linear_trend(df, composite, roi, plot=False):
+    """
+    Compute a linear trend (and significance) for a time series with irregular intervals.
+    """
+    df = df.copy()
+    df.index = pd.to_datetime(df.index)
+
+    y_series = df[roi].replace([np.inf, -np.inf], np.nan).dropna()
+    x = y_series.index.astype(np.int64) / 1e9  # seconds since epoch
+    y = y_series.values
+
+    # Perform regression with p-value
+    slope, intercept, r_value, p_value, std_err = linregress(x, y)
+
+    if plot:
+        slope_per_year = slope * 31_556_952
+        trend_stats = {'slope': f'{slope_per_year:.3f}/yr', 'p': f'{p_value:.4f}', 'R²': f'{r_value**2:.2f}'}
+        trend_values = intercept + slope * x
+        title=f'Linear Trend: {composite} in {roi.replace('_', ' ').title()}'
+        plot_time_series_with_trend(y_series.index, y, trend_values, trend_stats=trend_stats, title=title, ylabel=composite)
+
+    return slope, intercept, r_value**2, p_value
+
+
+def plot_roi_timeseries(df, rois, roi_colours, roi_comparisons=None, ylabel='', title='', comparison_alpha=0.1):
+    """
+    Plot NDVI (or other index) over time for a subset of ROIs.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Index = YYYYMMDD (int or str), columns = ROI names
+    rois : list
+        List of ROI names to plot
+    roi_colours : dict
+        ROI name -> hex color
+    ylabel : str
+        Y-axis label
+    """
+    # Convert index to datetime
+    df = df.copy()
+    df.index = pd.to_datetime(df.index.astype(str), format='%Y%m%d', errors='coerce')
+    df = df[df.index.notna()]
+
+    fig, ax = plt.subplots(figsize=(16, 10))
+
+    for roi in rois:
+        if roi not in df.columns:
+            print(f'Skipping {roi} (not found in DataFrame)')
+            continue
+
+        y = df[roi].replace([None, np.inf, -np.inf], np.nan).astype(float)
+        y_line = y.interpolate(method='linear', limit_direction='both')
+
+        colour = roi_colours.get(roi, 'black')
+
+        # Plot line (continuous through NaNs)
+        ax.plot(df.index, y_line, linestyle='-', color=colour, label=roi.replace('_', ' ').title())
+
+        # Plot markers only where actual data exists
+        ax.scatter(df.index[y.notna()], y[y.notna()], marker='o', color=colour, s=69)
+
+    if roi_comparisons:
+        for roi in roi_comparisons:
+            if roi not in df.columns:
+                print(f'Skipping {roi} (not found in DataFrame)')
+                continue
+
+            y = df[roi].replace([None, np.inf, -np.inf], np.nan).astype(float)
+            y_line = y.interpolate(method='linear', limit_direction='both')
+
+            colour = roi_colours.get(roi, 'black')
+
+            # Plot line (continuous through NaNs)
+            ax.plot(df.index, y_line, linestyle='-', color=colour, label=roi.replace('_', ' ').title(), alpha=comparison_alpha)
+
+            # Plot markers only where actual data exists
+            ax.scatter(df.index[y.notna()], y[y.notna()], marker='o', color=colour, s=69, alpha=comparison_alpha)
+
+    ax.set_title(title)
+    ax.set_xlabel('Time')
+    ax.set_ylabel(ylabel)
+    ax.legend(title='ROI', bbox_to_anchor=(1, 0.5), loc='center left')
+    ax.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_rois_on_basemap(rois_folder, rgb_path, roi_colours=None, title=None, highlight_rois=None, alphas=None):
+    """
+    Plot all ROI polygons on an RGB basemap with predefined colours first,
+    then random colours once the predefined ones are exhausted.
+    """
+
+    # if not roi_colours:
+    #     roi_colours = {
+    #         'close_forest_1': '#c8e667',
+    #         'close_forest_2': '#d4ee7a',
+    #         'greater_mine_site': '#8b5a2b',
+    #         'ocean_near_mine_site': '#1f77b4',
+    #         'river_outlet': '#5a7b8b',
+    #         'untouched_forest_1': '#006400',
+    #         'untouched_forest_2': '#004d00',
+    #         'untouched_forest_3': '#003300',
+    #         'water_body': '#008080',
+    #         'burnt_forest': '#8B0000'
+    #     }
+
+    if alphas is None:
+        alphas = {'default': 0.15, 'highlight': 0.95}
+
+    with rasterio.open(rgb_path) as src:
+        r, g, b = src.read(1), src.read(2), src.read(3)
+        rgb = np.dstack([r, g, b]).astype(np.float32)
+        extent = [src.bounds.left, src.bounds.right, src.bounds.bottom, src.bounds.top]
+        crs = src.crs
+
+    rgb_min, rgb_max = np.percentile(rgb, (2, 98))
+    rgb = np.clip((rgb - rgb_min) / (rgb_max - rgb_min), 0, 1)
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.imshow(rgb, extent=extent)
+    ax.axis('off')
+    if title:
+        ax.set_title(title, fontsize=24)
+    else:
+        ax.set_title('RGB Scene with ROIs', fontsize=24)
+
+    roi_paths = get_roi_shapefiles(rois_folder)
+    legend_handles = []
+
+    for roi_name, path in roi_paths.items():
+        gdf = gpd.read_file(path).to_crs(crs)
+
+        color = roi_colours.get(
+            roi_name,
+            '#' + ''.join(random.choices('0123456789ABCDEF', k=6))
+        )
+
+        if highlight_rois and roi_name in highlight_rois:
+            alpha_val = alphas['highlight']
+        else:
+            alpha_val = alphas['default']
+
+        gdf.plot(ax=ax, facecolor=color, edgecolor='black', alpha=alpha_val)
+
+        # Add to legend
+        legend_handles.append(
+            plt.Line2D([0], [0], color=color, lw=6, label=roi_name.replace('_', ' ').title(), alpha=alpha_val)
+        )
+
+        # Label ROI
+        for _, row in gdf.iterrows():
+            centroid = row.geometry.centroid
+            ax.text(
+                centroid.x, centroid.y, roi_name.replace('_', ' ').title(),
+                fontsize=16, ha='center', va='center', color='white', alpha=alpha_val,
+                path_effects=[plt.matplotlib.patheffects.withStroke(linewidth=2, foreground='black')]
+            )
+
+    ax.set_xlabel('Longitude')
+    ax.set_ylabel('Latitude')
+
+    # Add white north arrow (bottom-right)
+    ax.annotate(
+        'N', xy=(0.97, 0.08), xytext=(0.97, 0.02),
+        arrowprops=dict(facecolor='white', edgecolor='white', width=6, headwidth=20),
+        ha='center', va='center', color='white', fontsize=18,
+        xycoords='axes fraction'
+    )
+
+    # Legend outside on right
+    ax.legend(
+        handles=legend_handles,
+        title='Regions of Interest',
+        loc='center left',
+        bbox_to_anchor=(1, 0.5)
+    )
+
+    plt.tight_layout()
+    plt.show()

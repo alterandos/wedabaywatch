@@ -1,0 +1,37 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# ---- Virtual environments ----
+.env
+.venv
+env/
+venv/
+ENV/
+
+# ---- Jupyter / notebooks ----
+.ipynb_checkpoints/
+
+# ---- Logs / temp ----
+*.log
+*.tmp
+*.bak
+
+# ---- VS Code ----
+.vscode/
+.history/
+*.code-workspace
+
+# ---- OS-specific ----
+.DS_Store
+Thumbs.db
+
+# ---- Project-specific ----
+data/raw/
+data/tmp/
+data/
+output/derived_safekeeping/
+output/LE07/
