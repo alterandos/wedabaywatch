@@ -1,6 +1,6 @@
 ENVI
 description = {
-output/classified/LC08_L2SP_109060_20221127_20221206_02_T1_classified.tif}
+.\output/classified/LC08_L2SP_109060_20221127_20221206_02_T1_classified.tif}
 samples = 1113
 lines   = 1290
 bands   = 9
