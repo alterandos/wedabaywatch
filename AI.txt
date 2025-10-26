@@ -1,0 +1,45 @@
+REMOTE SENSING WEDABAYWATCH!
+
+...is the title of my project. I have a Python pipeline that successfully takes raw satellite images (landsat 8/9), clips them to my study area, stacks all the relevant bands (I defined these, B1-B7, B10, QA_pixel) and generates composites/indexes, e.g. NDVI, SAVI, etc. (also provided by me). 
+
+Analysis work is done using jupyter notebooks, with python files handling the chunky functions.
+
+The overall goal is to look at the study area - Weda Bay mining site - over time since before its inception, now. Currently we have data from 2016 - 2025 with 35 timestamps regularly spaced. 
+
+Initial analysis:
+
+found that NDVI declined around the mine site, but jungle further away was unaffected. Did this by having several different ROIs defined (created in ENVI classic)
+
+Note the ROI names here: 
+
+roi_colours = {
+            'close_forest_1': '#7FBF00',
+            'close_forest_2': '#99CC00',
+            'greater_mine_site': '#A04020',
+            'ocean_near_mine_site': '#1f77b4',
+            'river_outlet': '#5a7b8b',
+            'untouched_forest_1': '#006400',
+            'untouched_forest_2': '#004d00',
+            'untouched_forest_3': '#003300',
+            'water_body': '#008080',
+            'burnt_forest': '#B8860B'
+        }
+
+We developed trends for all the composites over these ROIs as well, but NDVI had the most interesting initial findings.
+
+composites = ['RGB', 'NDVI', 'MNDWI', 'NDBI', 'EVI', 'SAVI', 'FERRIC_IRON', 'BAI', 'SI', 'NDGI']
+
+See what I do to get an idea of the project structure:
+
+root = '.'
+
+data_folder = pipeline.make_new_dir(root, 'data')
+raw_folder = pipeline.make_new_dir(root, 'data/raw')
+clipped_folder = pipeline.make_new_dir(root, 'data/clipped')
+stacked_folder = pipeline.make_new_dir(root, 'data/stacked')
+derived_folder = pipeline.make_new_dir(root, 'data/derived')
+rois_folder = pipeline.make_new_dir(root, 'output/rois')
+rois_initial_analysis_dir = pipeline.make_new_dir(rois_folder, 'initial_analysis')
+tests_folder = pipeline.make_new_dir(root, 'tests')
+envi_folder = pipeline.make_new_dir(data_folder, 'envi')
+

@@ -2,9 +2,12 @@ import rasterio
 from rasterio.windows import Window
 from rasterio.merge import merge
 from rasterio.mask import mask
-from rasterio.features import geometry_mask
+from rasterio.features import geometry_mask, shapes
 from sklearn.linear_model import LinearRegression
 from scipy.stats import linregress
+import project_config
+
+from typing import Dict, Tuple, Optional
 
 import contextily as ctx
 import random
@@ -14,6 +17,7 @@ import pandas as pd
 import numpy as np
 from src import pipeline
 import matplotlib.pyplot as plt
+from shapely.geometry import shape, box
 
 import os
 import glob
@@ -24,6 +28,323 @@ QA_BITS = {
     'cloud_shadow': 1 << 4,
     'cirrus': 1 << 2
 }
+
+# Classification value mapping (adjust based on your teammate's output)
+LAND_COVER_CLASSES = project_config.BaseClassifier().int_class_mapping
+
+def read_classification_raster(class_path: str) -> Tuple[np.ndarray, rasterio.profiles.Profile]:
+    """
+    Read a classification raster.
+    
+    Parameters
+    ----------
+    class_path : str
+        Path to classification raster (.tif)
+    
+    Returns
+    -------
+    class_array : np.ndarray
+        2D array of classification values
+    profile : rasterio.profiles.Profile
+        Rasterio profile with CRS, transform, etc.
+    """
+    with rasterio.open(class_path) as src:
+        class_array = src.read(1)
+        profile = src.profile.copy()
+    
+    return class_array, profile
+
+
+def get_class_mask(class_array: np.ndarray, class_value: int) -> np.ndarray:
+    """
+    Extract a boolean mask for a specific class.
+    
+    Parameters
+    ----------
+    class_array : np.ndarray
+        Classification array
+    class_value : int
+        Class value to extract (e.g., 1 for mine_site_cleared)
+    
+    Returns
+    -------
+    np.ndarray
+        Boolean mask where True = class_value
+    """
+    return class_array == class_value
+
+
+def get_cleared_land_mask(class_array: np.ndarray, cleared_land_int) -> np.ndarray:
+    """
+    Get mask for cleared land (mine site).
+    
+    Parameters
+    ----------
+    class_array : np.ndarray
+        Classification array
+    
+    Returns
+    -------
+    np.ndarray
+        Boolean mask for cleared land
+    """
+    return get_class_mask(class_array, cleared_land_int)
+
+
+def get_forest_mask(class_array: np.ndarray, fores_int) -> np.ndarray:
+    """
+    Get mask for uncleared forest.
+    
+    Parameters
+    ----------
+    class_array : np.ndarray
+        Classification array
+    
+    Returns
+    -------
+    np.ndarray
+        Boolean mask for forest
+    """
+    return get_class_mask(class_array, fores_int)
+
+
+def classification_to_polygon(class_array: np.ndarray, 
+                              transform: rasterio.Affine,
+                              class_value: int,
+                              crs: str = None) -> gpd.GeoDataFrame:
+    """
+    Convert a classification mask to polygon geometries.
+    
+    Parameters
+    ----------
+    class_array : np.ndarray
+        Classification array
+    transform : rasterio.Affine
+        Affine transform from rasterio
+    class_value : int
+        Class value to vectorize
+    crs : str, optional
+        Coordinate reference system
+    
+    Returns
+    -------
+    gpd.GeoDataFrame
+        GeoDataFrame with polygon geometries
+    """
+    mask = class_array == class_value
+    
+    # Convert raster to polygons
+    results = shapes(mask.astype(np.uint8), mask=mask, transform=transform)
+    
+    geometries = []
+    values = []
+    
+    for geom, value in results:
+        if value == 1:  # Only keep the polygons where mask is True
+            geometries.append(shape(geom))
+            values.append(class_value)
+    
+    gdf = gpd.GeoDataFrame({
+        'class': values,
+        'geometry': geometries
+    }, crs=crs)
+    
+    return gdf
+
+
+def get_mine_boundary(class_path: str, 
+                      buffer_meters: float = 0,
+                      simplify_tolerance: float = 10) -> gpd.GeoDataFrame:
+    """
+    Extract mine site boundary from classification raster.
+    
+    Parameters
+    ----------
+    class_path : str
+        Path to classification raster
+    buffer_meters : float
+        Buffer distance in meters (positive = expand, negative = shrink)
+    simplify_tolerance : float
+        Tolerance for simplifying geometry (meters)
+    
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Mine boundary as polygon(s)
+    """
+    class_array, profile = read_classification_raster(class_path)
+    
+    # Get mine site polygons
+    gdf = classification_to_polygon(
+        class_array, 
+        profile['transform'],
+        class_value=1,  # mine_site_cleared
+        crs=profile['crs']
+    )
+    
+    # Dissolve all polygons into one
+    gdf_dissolved = gdf.dissolve()
+    
+    # Apply buffer if requested
+    if buffer_meters != 0:
+        gdf_dissolved.geometry = gdf_dissolved.geometry.buffer(buffer_meters)
+    
+    # Simplify geometry
+    if simplify_tolerance > 0:
+        gdf_dissolved.geometry = gdf_dissolved.geometry.simplify(simplify_tolerance)
+    
+    return gdf_dissolved
+
+
+def create_proximity_buffers(class_path: str,
+                             buffer_distances: list,
+                             output_folder: Optional[str] = None) -> Dict[int, gpd.GeoDataFrame]:
+    """
+    Create buffer zones around the mine site at different distances.
+    
+    Parameters
+    ----------
+    class_path : str
+        Path to classification raster
+    buffer_distances : list
+        List of buffer distances in meters (e.g., [500, 1000, 2000])
+    output_folder : str, optional
+        If provided, save shapefiles to this folder
+    
+    Returns
+    -------
+    dict
+        Distance -> GeoDataFrame mapping
+    """
+    # Get mine boundary
+    mine_boundary = get_mine_boundary(class_path)
+    
+    buffers = {}
+    
+    for i, dist in enumerate(sorted(buffer_distances)):
+        # Create buffer
+        buffer_outer = mine_boundary.copy()
+        buffer_outer.geometry = buffer_outer.geometry.buffer(dist)
+        
+        if i == 0:
+            # First buffer: just the buffered area minus mine
+            buffer_zone = buffer_outer.overlay(mine_boundary, how='difference')
+        else:
+            # Subsequent buffers: annulus between this and previous
+            prev_dist = buffer_distances[i-1]
+            buffer_inner = mine_boundary.copy()
+            buffer_inner.geometry = buffer_inner.geometry.buffer(prev_dist)
+            buffer_zone = buffer_outer.overlay(buffer_inner, how='difference')
+        
+        buffer_zone['distance_m'] = dist
+        buffers[dist] = buffer_zone
+        
+        # Save if output folder provided
+        if output_folder:
+            os.makedirs(output_folder, exist_ok=True)
+            scene_name = os.path.splitext(os.path.basename(class_path))[0]
+            out_path = os.path.join(output_folder, f'{scene_name}_buffer_{dist}m.shp')
+            buffer_zone.to_file(out_path)
+    
+    return buffers
+
+
+def mask_index_with_classification(index_array: np.ndarray,
+                                   class_array: np.ndarray,
+                                   keep_classes: list,
+                                   cloud_mask: Optional[np.ndarray] = None) -> np.ndarray:
+    """
+    Mask an index array (e.g., NDVI) using classification and cloud data.
+    
+    Parameters
+    ----------
+    index_array : np.ndarray
+        Index values (e.g., NDVI)
+    class_array : np.ndarray
+        Classification array
+    keep_classes : list
+        List of class values to keep (e.g., [1, 2] for mine and forest)
+    cloud_mask : np.ndarray, optional
+        Boolean cloud mask (True = cloud)
+    
+    Returns
+    -------
+    np.ndarray
+        Masked index array (invalid pixels = np.nan)
+    """
+    masked = index_array.copy().astype(float)
+    
+    # Mask based on classification
+    valid_class_mask = np.isin(class_array, keep_classes)
+    masked[~valid_class_mask] = np.nan
+    
+    # Mask clouds if provided
+    if cloud_mask is not None:
+        masked[cloud_mask] = np.nan
+    
+    return masked
+
+
+def calculate_class_statistics(index_array: np.ndarray,
+                               class_array: np.ndarray,
+                               class_value: int,
+                               cloud_mask: Optional[np.ndarray] = None) -> Dict[str, float]:
+    """
+    Calculate statistics for an index within a specific land cover class.
+    
+    Parameters
+    ----------
+    index_array : np.ndarray
+        Index values (e.g., NDVI)
+    class_array : np.ndarray
+        Classification array
+    class_value : int
+        Class to analyze
+    cloud_mask : np.ndarray, optional
+        Boolean cloud mask
+    
+    Returns
+    -------
+    dict
+        Statistics (mean, std, min, max, count)
+    """
+    # Get class mask
+    class_mask = class_array == class_value
+    
+    # Combine with cloud mask if provided
+    if cloud_mask is not None:
+        valid_mask = class_mask & (~cloud_mask)
+    else:
+        valid_mask = class_mask
+    
+    # Extract valid values
+    valid_values = index_array[valid_mask].astype(float)
+    valid_values = valid_values[~np.isnan(valid_values)]
+    
+    if len(valid_values) == 0:
+        return {
+            'mean': np.nan,
+            'std': np.nan,
+            'min': np.nan,
+            'max': np.nan,
+            'count': 0
+        }
+    
+    return {
+        'mean': np.mean(valid_values),
+        'std': np.std(valid_values),
+        'min': np.min(valid_values),
+        'max': np.max(valid_values),
+        'count': len(valid_values)
+    }
+
+
+
+
+
+
+
+# ==================================~ INITIAL ANALYSIS SECTION ~======================================= #
 
 def compute_cloud_cover_all_scenes(clipped_folder, rois_folder):
     """
