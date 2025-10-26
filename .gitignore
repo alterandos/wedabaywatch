@@ -32,6 +32,8 @@ Thumbs.db
 # ---- Project-specific ----
 data/raw/
 data/tmp/
-data/
+data/envi/
+data/derived/
+data/stacked/
 output/derived_safekeeping/
 output/LE07/
