@@ -10,11 +10,11 @@ from pathlib import Path
 @dataclass
 class BaseClassifier:
     class_int_mapping: Dict[str, int] = field(default_factory=lambda: {
+        'No data': -1,
         'Cloud': 0,
         'Jungle': 1,
         'Cleared': 2,
-        'Ocean': 3,
-        'No data': -1
+        'Ocean': 3
     })
 
     int_class_mapping: Dict[int, str] = field(default_factory=lambda: {
@@ -26,10 +26,11 @@ class BaseClassifier:
     })
 
     colours: Dict[str, str] = field(default_factory=lambda: {
+        "No data": "black",
         "Cloud": "lightgrey",
         "Jungle": "forestgreen",
         "Cleared": "orange",
-        "No data": "black"
+        "Ocean": "blue"
     })
 
 @dataclass

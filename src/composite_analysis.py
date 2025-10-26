@@ -421,17 +421,18 @@ def get_cloud_mask(qa_path, cloud=True, cloud_shadow=True, cirrus=False):
         qa = src.read(1) # [0, 0, 1, 0]
         nodata = src.nodata
 
-        cloud_mask = (
-            (
-                  (qa & QA_BITS['cloud'])
-                | (qa & QA_BITS['cloud_shadow'] & cloud_shadow)
-                | (qa & QA_BITS['cirrus'] & cirrus)
-            ) > 0
-        )
-
+        cloud_mask = np.zeros_like(qa, dtype=bool)
+        
+        if cloud:
+            cloud_mask |= (qa & QA_BITS['cloud']) > 0
+        if cloud_shadow:
+            cloud_mask |= (qa & QA_BITS['cloud_shadow']) > 0
+        if cirrus:
+            cloud_mask |= (qa & QA_BITS['cirrus']) > 0
+        
         if nodata is not None:
-            cloud_mask[qa == nodata] = True  # treat nodata as "ignore"
-
+            cloud_mask[qa == nodata] = True
+    
     return cloud_mask
 
 def mask_clouds_in_scene_raster(raster_path, qa_path):
