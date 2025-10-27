@@ -159,39 +159,39 @@ def stack_all_bands_in_dir(clipped_folder, output_folder, bands_to_keep, replace
     return counter
 
 # Band map
-band_map = {
-    'LC09': {  # Landsat 8
-        'AEROSOL': 'B1',
-        'B': 'B2',
-        'G': 'B3',
-        'R': 'B4',
-        'NIR': 'B5',
-        'SWIR1': 'B6',
-        'SWIR2': 'B7',
-        'TIR1': 'B10',
-        'TIR2': 'B11'
-    },
-    'LC08': {  # Landsat 8
-        'AEROSOL': 'B1',
-        'B': 'B2',
-        'G': 'B3',
-        'R': 'B4',
-        'NIR': 'B5',
-        'SWIR1': 'B6',
-        'SWIR2': 'B7',
-        'TIR1': 'B10',
-        'TIR2': 'B11'
-    },
-    'LE07': {  # Landsat 7
-        'B': 'B1',
-        'G': 'B2',
-        'R': 'B3',
-        'NIR': 'B4',
-        'SWIR1': 'B5',
-        'TIR': 'B6',
-        'SWIR2': 'B7'
-    }
-}
+# band_map = {
+#     'LC09': {  # Landsat 8
+#         'AEROSOL': 'B1',
+#         'B': 'B2',
+#         'G': 'B3',
+#         'R': 'B4',
+#         'NIR': 'B5',
+#         'SWIR1': 'B6',
+#         'SWIR2': 'B7',
+#         'TIR1': 'B10',
+#         'TIR2': 'B11'
+#     },
+#     'LC08': {  # Landsat 8
+#         'AEROSOL': 'B1',
+#         'B': 'B2',
+#         'G': 'B3',
+#         'R': 'B4',
+#         'NIR': 'B5',
+#         'SWIR1': 'B6',
+#         'SWIR2': 'B7',
+#         'TIR1': 'B10',
+#         'TIR2': 'B11'
+#     },
+#     'LE07': {  # Landsat 7
+#         'B': 'B1',
+#         'G': 'B2',
+#         'R': 'B3',
+#         'NIR': 'B4',
+#         'SWIR1': 'B5',
+#         'TIR': 'B6',
+#         'SWIR2': 'B7'
+#     }
+# }
 
 def get_bands_from_stack(stack_path):
     """
@@ -282,7 +282,7 @@ def compute_composite_from_stack_and_save(stack_path, out_path, composite_name, 
             # swir = bands[band_to_index[band_map[sensor]['SWIR1']] - 1]
             composite = np.where(
                 (green + swir) == 0, np.nan,
-                composite = (green - swir) / (green + swir)
+                (green - swir) / (green + swir)
             )
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')

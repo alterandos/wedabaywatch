@@ -46,6 +46,48 @@ class BandConfig:
             'LC08': self.LC08,
             'LC09': self.LC09
         }
+        
+@dataclass
+class BandMap:
+    """Spectral band mappings for different Landsat sensors."""
+    LC09: Dict[str, str] = field(default_factory=lambda: {
+        'AEROSOL': 'B1',
+        'B': 'B2',
+        'G': 'B3',
+        'R': 'B4',
+        'NIR': 'B5',
+        'SWIR1': 'B6',
+        'SWIR2': 'B7',
+        'TIR1': 'B10',
+        'TIR2': 'B11'
+    })
+    LC08: Dict[str, str] = field(default_factory=lambda: {
+        'AEROSOL': 'B1',
+        'B': 'B2',
+        'G': 'B3',
+        'R': 'B4',
+        'NIR': 'B5',
+        'SWIR1': 'B6',
+        'SWIR2': 'B7',
+        'TIR1': 'B10',
+        'TIR2': 'B11'
+    })
+    LE07: Dict[str, str] = field(default_factory=lambda: {
+        'B': 'B1',
+        'G': 'B2',
+        'R': 'B3',
+        'NIR': 'B4',
+        'SWIR1': 'B5',
+        'TIR': 'B6',
+        'SWIR2': 'B7'
+    })
+
+    def to_dict(self):
+        return {
+            'LC09': self.LC09,
+            'LC08': self.LC08,
+            'LE07': self.LE07
+        }
 
 
 @dataclass
@@ -153,6 +195,7 @@ class AnalysisConfig:
 class ProjectConfig:
     """Master configuration for Weda Bay Watch project."""
     bands: BandConfig = field(default_factory=BandConfig)
+    band_map: BandMap = field(default_factory=BandMap)
     composites: CompositeConfig = field(default_factory=CompositeConfig)
     rois: ROIConfig = field(default_factory=ROIConfig)
     paths: PathConfig = field(default_factory=PathConfig)
