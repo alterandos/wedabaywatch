@@ -37,5 +37,6 @@ data/derived/
 data/stacked/
 output/derived_safekeeping/
 output/LE07/
+output/classified
 
 claude_temp
