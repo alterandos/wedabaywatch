@@ -1,7 +1,7 @@
 <PAMDataset>
   <Metadata domain="ENVI">
-    <MDI key="samples">1113</MDI>
-    <MDI key="lines">1290</MDI>
+    <MDI key="samples">1725</MDI>
+    <MDI key="lines">2412</MDI>
     <MDI key="bands">1</MDI>
     <MDI key="header_offset">0</MDI>
     <MDI key="file_type">ENVI Standard</MDI>

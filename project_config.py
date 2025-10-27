@@ -117,8 +117,8 @@ class PathConfig:
     clipped: str = 'data/clipped'
     stacked: str = 'data/stacked'
     derived: str = 'data/derived'
-    classified: str = 'output/classified'  # New: for classification outputs
-    grid_analysis: str = 'output/grid_analysis'  # New: for grid-based analysis
+    classified: str = 'output/classified'
+    grid_analysis: str = 'output/grid_analysis'
     proximity_analysis: str = 'output/proximity_analysis'  # New: for proximity analysis
     rois: str = 'output/rois'
     rois_initial: str = 'output/rois/initial_analysis'

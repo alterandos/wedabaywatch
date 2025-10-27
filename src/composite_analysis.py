@@ -32,7 +32,7 @@ QA_BITS = {
 # Classification value mapping (adjust based on your teammate's output)
 LAND_COVER_CLASSES = project_config.BaseClassifier().int_class_mapping
 
-def read_classification_raster(class_path: str) -> Tuple[np.ndarray, rasterio.profiles.Profile]:
+def read_raster(class_path: str) -> Tuple[np.ndarray, rasterio.profiles.Profile]:
     """
     Read a classification raster.
     
@@ -402,6 +402,32 @@ def get_roi_shapefiles(rois_folder):
         roi_name = os.path.splitext(os.path.basename(shp_file))[0]
         roi_shp_paths[roi_name] = shp_file
     return roi_shp_paths
+
+def get_cloud_mask_from_qa_pixel_explicit(qa_path):
+    QA_BITS = {
+        'cloud': 1 << 3,
+        'cloud_shadow': 1 << 4,
+        'cirrus': 1 << 2
+    }
+
+    ignore_value = 0
+    
+    with rasterio.open(qa_path) as src:
+        qa = src.read(1) # [0, 0, 1, 0]
+        nodata = src.nodata
+
+    cloud_mask = np.full_like(qa, fill_value=ignore_value, dtype=int)
+    cloud_mask[(qa & QA_BITS['cloud']) > 0] = 1
+    cloud_mask[(qa & QA_BITS['cloud_shadow']) > 0] = 2
+    cloud_mask[(qa & QA_BITS['cirrus']) > 0] = 3
+
+    if nodata is not None:
+        cloud_mask[qa == nodata] = -1
+
+    cloud_map = {1: 'cloud', 2: 'cloud_shadow', 3: 'cirrus'}
+
+    return cloud_mask, cloud_map, ignore_value
+
 
 def get_cloud_mask(qa_path, cloud=True, cloud_shadow=True, cirrus=False):
     """
