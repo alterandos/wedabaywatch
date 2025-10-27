@@ -376,7 +376,7 @@ def build_composites_from_stacks(stacked_folder, output_folder, composites, band
             out_dir = make_new_dir(output_folder, scene_dir)
             out_path = os.path.join(out_dir, f'{composite}')
 
-            counter += process_if_needed(out_path, replace_existing, compute_composite_from_stack_and_save, stack_path, out_path, composite, band_map, sensor)
+            counter += process_if_needed(out_path, replace_existing, compute_composite_from_stack_and_save, stack_path, out_path, composite_name=composite, band_map=band_map, sensor=sensor)
     return counter
 
 # --- Operational functions --- #

@@ -216,7 +216,7 @@ def train_and_classify(roi_sources,
     if img_folder_path[-1] != "/":
         img_folder_path = img_folder_path + "/"
 
-    if roi_folder_path[-1] != "/":
+    if classified_folder_path[-1] != "/":
         classified_folder_path = classified_folder_path + "/"
             
     # Train classifier
