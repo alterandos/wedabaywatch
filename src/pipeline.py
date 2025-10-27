@@ -10,7 +10,6 @@ import tarfile
 import re
 
 # --- Raster and analytical functions --- #
-
 def calculate_area_projected(coords):
     """Calculate area in km² for a polygon in projected CRS (meters)."""
     poly = Polygon(coords)
@@ -158,41 +157,6 @@ def stack_all_bands_in_dir(clipped_folder, output_folder, bands_to_keep, replace
         )
     return counter
 
-# Band map
-# band_map = {
-#     'LC09': {  # Landsat 8
-#         'AEROSOL': 'B1',
-#         'B': 'B2',
-#         'G': 'B3',
-#         'R': 'B4',
-#         'NIR': 'B5',
-#         'SWIR1': 'B6',
-#         'SWIR2': 'B7',
-#         'TIR1': 'B10',
-#         'TIR2': 'B11'
-#     },
-#     'LC08': {  # Landsat 8
-#         'AEROSOL': 'B1',
-#         'B': 'B2',
-#         'G': 'B3',
-#         'R': 'B4',
-#         'NIR': 'B5',
-#         'SWIR1': 'B6',
-#         'SWIR2': 'B7',
-#         'TIR1': 'B10',
-#         'TIR2': 'B11'
-#     },
-#     'LE07': {  # Landsat 7
-#         'B': 'B1',
-#         'G': 'B2',
-#         'R': 'B3',
-#         'NIR': 'B4',
-#         'SWIR1': 'B5',
-#         'TIR': 'B6',
-#         'SWIR2': 'B7'
-#     }
-# }
-
 def get_bands_from_stack(stack_path):
     """
     Open a stacked raster and return:
@@ -236,104 +200,78 @@ def compute_composite_from_stack_and_save(stack_path, out_path, composite_name, 
 
     match composite_name:
         case 'RGB':
-            # r = bands[band_to_index[band_map[sensor]['R']] - 1]
-            # g = bands[band_to_index[band_map[sensor]['G']] - 1]
-            # b = bands[band_to_index[band_map[sensor]['B']] - 1]
             composite = np.stack([red, green, blue])
 
         case 'NDVI':
-            # nir = bands[band_to_index[band_map[sensor]['NIR']] - 1]
-            # red = bands[band_to_index[band_map[sensor]['R']] - 1]
-            composite = np.where(
-                (nir + red) == 0, np.nan,
-                (nir - red) / (nir + red)
-            )
+            # composite = np.where(
+            #     (nir + red) == 0, np.nan,
+            #     (nir - red) / (nir + red)
+            # )
+            composite = (nir - red) / (nir + red + tiny_offset)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'EVI':
-            # nir = bands[band_to_index[band_map[sensor]['NIR']] - 1]
-            # r = bands[band_to_index[band_map[sensor]['R']] - 1]
-            # b = bands[band_to_index[band_map[sensor]['B']] - 1]
             composite = 2.5 * (nir - red) / (nir + 6*red - 7.5*blue + 1)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'SAVI':
-            # nir = bands[band_to_index[band_map[sensor]['NIR']] - 1]
-            # r = bands[band_to_index[band_map[sensor]['R']] - 1]
             L = 0.5
             composite = ((nir - red) * (1 + L)) / (nir + red + L)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'NDBI':
-            # swir = bands[band_to_index[band_map[sensor]['SWIR1']] - 1]
-            # nir = bands[band_to_index[band_map[sensor]['NIR']] - 1]
-            composite = np.where(
-                (swir + nir) == 0, np.nan,
-                (swir - nir) / (swir + nir)
-            )
+            # composite = np.where(
+            #     (swir + nir) == 0, np.nan,
+            #     (swir - nir) / (swir + nir)
+            # )
+            composite = (swir - nir) / (swir + nir + tiny_offset)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'MNDWI':
-            # green = bands[band_to_index[band_map[sensor]['G']] - 1]
-            # swir = bands[band_to_index[band_map[sensor]['SWIR1']] - 1]
-            composite = np.where(
-                (green + swir) == 0, np.nan,
-                (green - swir) / (green + swir)
-            )
+            # composite = np.where(
+            #     (green + swir) == 0, np.nan,
+            #     (green - swir) / (green + swir)
+            # )
+            composite = (green - swir) / (green + swir + tiny_offset)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'FERRIC_IRON':
-            # red = bands[band_to_index[band_map[sensor]['R']] - 1]
-            # green = bands[band_to_index[band_map[sensor]['G']] - 1]
             composite = red/(green+1e-7)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
         
         case 'BAI':  # Burned Area Index
-            # nir = bands[band_to_index[band_map[sensor]['NIR']] - 1]
-            # red = bands[band_to_index[band_map[sensor]['R']] - 1]
-            # blue = bands[band_to_index[band_map[sensor]['B']] - 1]
             composite = 1 / ((0.1 - blue)**2 + (0.06 - red)**2 + (nir - 0.3)**2)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'SI':  # Shadow Index
-            # nir = bands[band_to_index[band_map[sensor]['NIR']] - 1]
-            # red = bands[band_to_index[band_map[sensor]['R']] - 1]
-            # green = bands[band_to_index[band_map[sensor]['G']] - 1]
             composite = (nir - red) / (nir + red + green + tiny_offset)  # avoid div by 0
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'NDGI':  # Normalized Difference Greenness Index
-            # green = bands[band_to_index[band_map[sensor]['G']] - 1]
-            # red = bands[band_to_index[band_map[sensor]['R']] - 1]
             composite = (green - red) / (green + red + tiny_offset)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'NDMI':  # Normalized Difference Moisture Index
-            # nir = bands[band_to_index[band_map[sensor]['NIR']] - 1]
-            # swir = bands[band_to_index[band_map[sensor]['SWIR1']] - 1]
             composite = (nir - swir) / (nir + swir + tiny_offset)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'CMI':  # Clay Mineral Index
-            # swir = bands[band_to_index[band_map[sensor]['SWIR1']] - 1]
-            # nir = bands[band_to_index[band_map[sensor]['NIR']] - 1]
             composite = (swir - nir) / (swir + nir + tiny_offset)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case _:
             raise ValueError(f"Unsupported composite/index: {composite_name}")
-
 
     # Update profile for output
     profile.update(
@@ -403,7 +341,6 @@ def get_all_files_in_dir_by_extension(dir_path, extension):
 
 
 # --- Naming functions --- #
-
 def extract_scene_date(name: str) -> str | None:
     """Return first 8-digit date (YYYYMMDD) found in the scene name, or None."""
     parts = re.split(r'[_\-\s]', name)
