@@ -43,10 +43,12 @@ def get_cloud_mask_from_stacked(img_name, img_folder_path = "data/stacked/"):
         ) > 0
     )
 
+    na_mask = (qa == 1)
+
     if nodata is not None:
         cloud_mask[qa == nodata] = True  # treat nodata as "ignore"
 
-    return cloud_mask
+    return cloud_mask, na_mask
 
 
 def extract_pixels_from_roi(img_name, 
@@ -69,7 +71,7 @@ def extract_pixels_from_roi(img_name,
         invert=True
     )
     
-    cloud_mask = get_cloud_mask_from_stacked(img_name, img_folder_path)
+    cloud_mask, _ = get_cloud_mask_from_stacked(img_name, img_folder_path)
 
     ys, xs = np.where(mask & ~(cloud_mask & cloud_masking) )
     pixels = img_data[:, ys, xs].T
@@ -163,10 +165,12 @@ def classify_img(clf,
     # 3. Mask cloud
     # ------------------------------- 
 
-    cloud_mask = get_cloud_mask_from_stacked(img_name, img_folder_path)
+    cloud_mask, na_mask = get_cloud_mask_from_stacked(img_name, img_folder_path)
 
     if cloud_masking:
         classified[cloud_mask] = 0
+
+    classified[na_mask] = -2
 
     if plot:    
         plt.figure(figsize=(8, 6))
