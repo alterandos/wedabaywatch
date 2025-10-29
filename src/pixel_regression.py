@@ -118,7 +118,8 @@ def calculate_trend(
         class_stack,
         index_stack,
         dates_int,
-        min_datapoints_for_reg = 5
+        min_datapoints_for_reg = 5,
+        classes_for_reg = [1]
 ):
     
     """Calculates linear trend of a given index in every jungle pixel.
@@ -136,15 +137,19 @@ def calculate_trend(
         for x in range(W):
             s = class_stack[:,y,x]
             ndvi_s = index_stack[:,y,x]
-            s_filter = ((s == 1) & ~np.isnan(ndvi_s))
+            s_filter = (np.isin(s, classes_for_reg) & ~np.isnan(ndvi_s))
             if s_filter.sum() < min_datapoints_for_reg:
                 trend_stack[y,x] = np.nan
                 continue
             ndvi_filt = ndvi_s[s_filter]
             dates_filt = dates_int[s_filter]
             slope_xy, intercept_xy = basic_regression(dates_filt,ndvi_filt)
-            trend_stack[y,x] = slope_xy
-            intercept_stack[y,x] = intercept_xy
+            try:
+                intercept_stack[y,x] = intercept_xy
+                trend_stack[y,x] = slope_xy
+            except:
+                continue
+
 
         # print progress
         if y % 100 == 99:
@@ -156,7 +161,8 @@ def calculate_trend(
         
 
 def get_final_state(
-        path = "output/classified/jungle_to_mine_change.tif"
+        path = "output/classified/jungle_to_mine_change.tif",
+        classes_for_reg = [1]
 ):
     with rasterio.open(path) as src:
         initial_state = src.read(1)
@@ -164,7 +170,7 @@ def get_final_state(
         change_year = src.read(3)
 
     final_state_no_forest = final_state.astype(float)
-    forest_mask = (final_state==1)
+    forest_mask = (~np.isin(final_state, classes_for_reg))
     final_state_no_forest[forest_mask] = np.nan 
 
     return final_state, final_state_no_forest
@@ -265,6 +271,7 @@ def pixel_regression(
         plot_index_path = None,
         plot_dist_toggle = False,
         index_scaling = 365*13,
+        classes_for_reg = [1]
 ):
     class_stack, filenames = get_class_stack(classified_folder_path ,classified_name_format)
 
@@ -272,9 +279,9 @@ def pixel_regression(
 
     _, dates_int = dates_convert(filenames)
 
-    trend_stack, intercept_stack = calculate_trend(class_stack, index_stack, dates_int, min_datapoints_for_reg)
+    trend_stack, intercept_stack = calculate_trend(class_stack, index_stack, dates_int, min_datapoints_for_reg, classes_for_reg)
 
-    final_state, final_state_no_forest = get_final_state(change_tif_path)
+    final_state, final_state_no_forest = get_final_state(change_tif_path, classes_for_reg=classes_for_reg)
 
     if plot_index_toggle:
         plot_index(trend_stack, final_state_no_forest, index_name, index_scaling, plot_index_path)
