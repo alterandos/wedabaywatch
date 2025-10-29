@@ -11,6 +11,7 @@ from scipy.ndimage import distance_transform_edt
 from datetime import date
 import glob
 import pandas as pd
+import sigfig
 
 def get_class_stack(
         classified_folder_path = "output/classified/",
@@ -169,8 +170,8 @@ def get_final_state(
         final_state = src.read(2)
         change_year = src.read(3)
 
+    forest_mask = (np.isin(final_state, classes_for_reg))
     final_state_no_forest = final_state.astype(float)
-    forest_mask = (~np.isin(final_state, classes_for_reg))
     final_state_no_forest[forest_mask] = np.nan 
 
     return final_state, final_state_no_forest
@@ -184,17 +185,32 @@ def plot_index(
 ):
     """ Plot index, with the final states overlayed."""
 
+    trend_stack_scaled = trend_stack*scaling
+
+    trend_median = np.nanmedian(trend_stack_scaled)
+
+    trend_10pct = np.nanpercentile(trend_stack_scaled,10)
+
     # Define the boundaries (edges between color ranges)
-    bounds = [-9999, -0.15, -0.05,  0.05, 0.15, 9999]
+    half_bin_width = sigfig.round(((trend_median - trend_10pct)/2),sigfigs = 1)
+
+    bounds = [-9999, -3*half_bin_width, -half_bin_width,  half_bin_width, 3*half_bin_width, 9999]
+    #bounds = [-9999, np.nanpercentile(trend_stack_scaled,25), trend_median,  np.nanpercentile(trend_stack_scaled,75), 9998.5, 9999]
+    #bounds = [-9999, trend_median,  9998.5, 9999]
+
+
+    #if np.abs(trend_median) > half_bin_width*3:
+    #    trend_median_rounded = sigfig.round(trend_median, sigfigs = 1)
+    #    bounds =  bounds + trend_median_rounded
 
     # Define the colors for each range (one fewer than the number of bounds)
-    colors = ['#e66158', '#f4a582', "#F3E8B3", '#b8e186', '#4d9221']
+    cmap_colors = ['#e66158', '#f4a582', "#F3E8B3", '#b8e186', '#4d9221']
 
     # Create colormap and normalization
-    cmap = mcolors.ListedColormap(colors)
-    norm = mcolors.BoundaryNorm(bounds, cmap.N)
+    cmap = mcolors.ListedColormap(cmap_colors)
+    norm = mcolors.BoundaryNorm(bounds, cmap.N) 
 
-    trend_stack_scaled = trend_stack*scaling 
+    #plt.hist(trend_stack_scaled.flatten())
 
     # Plot
     plt.figure(figsize=(8, 6))
@@ -202,25 +218,34 @@ def plot_index(
     plt.colorbar(im, boundaries=bounds, ticks=bounds[1:-1], label=index_name+" Change")
     plt.title(index_name+" Trend Map \n(modelled change between 2013 and 2025)")
 
-
     classes = {
-        3: ("Ocean", "deepskyblue"),
-        0: ("Cloud", "lightgrey"),
+        3: ("Cloud", "lightgrey"),
         1: ("Jungle", "forestgreen"),
-        2: ("Cleared", "black"),
-        -1: ("No data", "darkblue")
+        2: ("Cleared Land", "black"),
+        0: ("Ocean", "skyblue"),
+        #1: ("No data", "darkgrey"),
+        254: ("No data", "darkgrey"),
     }
+
+    # Sort them by code
+    vals, info = zip(*sorted(classes.items()))
+    names, cols = zip(*info)
+
+    # Make colormap + matching normalizer
+    class_cmap = mcolors.ListedColormap(cols)
+    class_norm = mcolors.BoundaryNorm([v - 0.5 for v in vals] + [vals[-1] + 0.5], len(vals))
 
     # Sort class values to match colormap
     class_values = sorted(classes.keys())
-    class_colors = [classes[c][1] for c in class_values]
-    #class_labels = [classes[c][0] for c in class_values[2:3]]
+    #class_colors = [classes[c][1] for c in class_values]
+    remaining_class_values = np.unique(final_state_no_forest)
+    class_labels = [classes[c][0] for c in remaining_class_values[remaining_class_values >= 0]]
 
     # Create colormap and norm
-    class_cmap = mcolors.ListedColormap(class_colors)
+    #class_cmap = mcolors.ListedColormap(class_colors)
     # Boundaries should extend ±0.5 around each integer value
-    class_bounds = [c - 0.5 for c in class_values] + [class_values[-1] + 0.5]
-    class_norm = mcolors.BoundaryNorm(class_bounds, class_cmap.N)
+    #class_bounds = [c - 0.5 for c in class_values] + [class_values[-1] + 0.5]
+    #class_norm = mcolors.BoundaryNorm(class_bounds, class_cmap.N)
 
     # Plot
     im = plt.imshow(final_state_no_forest, cmap=class_cmap, norm=class_norm)
