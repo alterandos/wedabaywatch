@@ -53,7 +53,7 @@ def get_cloud_mask_from_stacked(img_name, img_folder_path = "data/stacked/"):
 
 def extract_pixels_from_roi(img_name, 
                             roi_name, 
-                            roi_folder_path = "data/training_rois/",
+                            roi_folder_path = "output/rois/classification_training_rois/",
                             img_folder_path = "data/stacked/",
                             cloud_masking = True
                             ):
