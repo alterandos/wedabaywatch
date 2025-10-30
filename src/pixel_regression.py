@@ -176,6 +176,14 @@ def get_final_state(
 
     return final_state, final_state_no_forest
 
+def add_scalebar(ax, length_px, label="20km", pad=-20):
+    """Add a simple horizontal scale bar."""
+    x0 = ax.get_xlim()[1] -100 - length_px
+    y0 = ax.get_ylim()[0] -50
+    ax.hlines(y=y0, xmin=x0+30, xmax=x0 + 30 + length_px, colors='black', linewidth=3)
+    ax.text(x0 + 15 + length_px / 2, y0 + pad * 0.5, label, ha='center', va='bottom', color='black', fontsize=10)
+    return
+
 def plot_index(
         trend_stack,
         final_state_no_forest,
@@ -213,10 +221,10 @@ def plot_index(
     #plt.hist(trend_stack_scaled.flatten())
 
     # Plot
-    plt.figure(figsize=(8, 6))
-    im = plt.imshow((trend_stack_scaled), cmap=cmap, norm=norm) 
-    plt.colorbar(im, boundaries=bounds, ticks=bounds[1:-1], label=index_name+" Change")
-    plt.title(index_name+" Trend Map \n(modelled change between 2013 and 2025)")
+    fig, ax = plt.subplots(figsize=(8, 6))
+    im = ax.imshow((trend_stack_scaled), cmap=cmap, norm=norm) 
+    fig.colorbar(im, boundaries=bounds, ticks=bounds[1:-1], label=index_name+" Decadal Trend")
+    ax.set_title(index_name+" Decadal Trend Map")
 
     classes = {
         3: ("Cloud", "lightgrey"),
@@ -241,27 +249,32 @@ def plot_index(
     remaining_class_values = np.unique(final_state_no_forest)
     class_labels = [classes[c][0] for c in remaining_class_values[remaining_class_values >= 0]]
 
-    # Create colormap and norm
-    #class_cmap = mcolors.ListedColormap(class_colors)
-    # Boundaries should extend ±0.5 around each integer value
-    #class_bounds = [c - 0.5 for c in class_values] + [class_values[-1] + 0.5]
-    #class_norm = mcolors.BoundaryNorm(class_bounds, class_cmap.N)
-
     # Plot
-    im = plt.imshow(final_state_no_forest, cmap=class_cmap, norm=class_norm)
-    #cbar = plt.colorbar(im, ticks=class_values)
-    #cbar.ax.set_yticklabels(class_labels)
+    ax.imshow(final_state_no_forest, cmap=class_cmap, norm=class_norm)
+
+    ax.set_xticks([])  # turn off x-axis
+    ax.set_yticks([])  # turn off y-axis
+
+    # Scale bar
+    pixel_size = 30  # meters per pixel
+    scalebar_length_m = 20000
+    scalebar_length_px = scalebar_length_m / pixel_size
+
+
+    # Your custom add_scalebar function (assumes it’s defined somewhere)
+    add_scalebar(ax, scalebar_length_px, label = "20km")
 
     if save_path is None:
-        plt.show()
+        fig.show()
     else:
-        plt.savefig(save_path)
+        fig.savefig(save_path)
     return
 
 
 def calculate_distance(
     final_state,
-    plot_dist = False
+    plot_dist = False,
+    save_plot = None
 ):
     """ Calculate distance from each jungle pixel (state = 1) to the nearest cleared pixel (2)"""
     # Boolean mask of "2" pixels
@@ -277,10 +290,13 @@ def calculate_distance(
     if plot_dist:
         #Plot 
         plt.figure(figsize=(8, 8))
-        im = plt.imshow(dist_plot, cmap='viridis')
-        plt.colorbar(im, label='Distance to nearest class 2 (pixels)')
-        plt.title('Distance to nearest mine')
-        plt.show()
+        im = plt.imshow(dist_plot*30/1000, cmap='viridis') #*30/1000 to convert pixels -> km
+        plt.colorbar(im, label='Distance (km)')
+        plt.title('Distance to Nearest Mining Area')
+        if save_plot is None:
+            plt.show()
+        else:
+            plt.savefig(save_plot)
 
     return dist_plot
 
@@ -312,7 +328,7 @@ def pixel_regression(
         plot_index(trend_stack, final_state_no_forest, index_name, index_scaling, plot_index_path)
     
     
-    dist_plot = calculate_distance(final_state, plot_dist_toggle)
+    dist_plot = calculate_distance(final_state, plot_dist_toggle, save_plot= None)
     
     return trend_stack, intercept_stack, dist_plot    
     
