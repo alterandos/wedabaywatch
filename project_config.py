@@ -160,6 +160,7 @@ class PathConfig:
     stacked: str = 'data/stacked'
     derived: str = 'data/derived'
     classified: str = 'output/classified'
+    luc_analysis: str = 'output/luc_analysis'
     grid_analysis: str = 'output/grid_analysis'
     proximity_analysis: str = 'output/proximity_analysis'  # New: for proximity analysis
     rois: str = 'output/rois'
@@ -167,6 +168,9 @@ class PathConfig:
     rois_classification: str = 'output/rois/classification_training_rois'
     tests: str = 'tests'
     envi: str = 'data/envi'
+
+    smoothed_stack_all_timestamps_file_path = 'output/classified/smoothed_stack.npy'
+    jungle_to_mine_change_tif_file_path = 'output/classified/jungle_to_mine_change.tif'
     
     def get_path(self, key: str) -> Path:
         """Get Path object for a given key."""

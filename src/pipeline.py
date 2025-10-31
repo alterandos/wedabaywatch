@@ -1,6 +1,7 @@
 import rasterio
 from rasterio.mask import mask
 from shapely.geometry import box, mapping, Polygon
+import matplotlib.pyplot as plt
 
 import numpy as np
 
@@ -374,3 +375,53 @@ def generate_scene_id_from_landsat_name(fulllandsatname: str, extra: str | list 
 
     extra_str = '-'.join(map(str, extra)) if isinstance(extra, (list, tuple)) else str(extra)
     return f"{base}_{extra_str}"
+
+
+class PlotUtils:
+    @staticmethod
+    def add_north_arrow(ax=None, color='black', size=None, loc='lower right', pad=0.05):
+        """
+        Add a north arrow to a matplotlib plot or subplot.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes, optional
+            The axis to draw the arrow on. Uses current axis if None.
+        color : str
+            Arrow and text colour.
+        size : float, optional
+            Arrow length in axis fraction. Automatically scaled if None.
+        loc : str
+            Location: 'upper right', 'upper left', 'lower right', 'lower left'.
+        pad : float
+            Padding from plot edge in axis fraction.
+        """
+        if ax is None:
+            ax = plt.gca()
+
+        # Auto-size relative to plot dimensions
+        if size is None:
+            bbox = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted())
+            size = 0.1 * (bbox.height / bbox.width)  # scales arrow length to aspect ratio
+
+        # Map location to coordinates
+        loc_map = {
+            'upper right':  (1 - pad - size, 1 - pad),
+            'upper left':   (pad + size, 1 - pad),
+            'lower right':  (1 - pad - size, pad + size),
+            'lower left':   (pad + size, pad + size)
+        }
+        x, y = loc_map.get(loc, loc_map['upper right'])
+
+        # Draw arrow (pointing up)
+        ax.annotate('N',
+                    xy=(x, y),
+                    xytext=(x, y - size),
+                    xycoords='axes fraction',
+                    textcoords='axes fraction',
+                    ha='center', va='center',
+                    fontsize=120*size,
+                    color=color,
+                    arrowprops=dict(facecolor=color, edgecolor=color, width=2, headwidth=10, headlength=10))
+
+        return ax
