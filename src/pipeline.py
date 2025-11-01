@@ -1,7 +1,9 @@
 import rasterio
+import pyproj
 from rasterio.mask import mask
 from shapely.geometry import box, mapping, Polygon
 import matplotlib.pyplot as plt
+from matplotlib_scalebar.scalebar import ScaleBar
 
 import numpy as np
 
@@ -378,50 +380,151 @@ def generate_scene_id_from_landsat_name(fulllandsatname: str, extra: str | list 
 
 
 class PlotUtils:
-    @staticmethod
-    def add_north_arrow(ax=None, color='black', size=None, loc='lower right', pad=0.05):
+    def add_scalebar(ax, location='lower center', pad=0.05, colour='black', pixel_size=None):
         """
-        Add a north arrow to a matplotlib plot or subplot.
+        Adds a scale bar to a GeoPandas/Matplotlib axis or raster image.
+        
+        Args:
+            ax: Matplotlib axis
+            location: Position of scalebar
+            pad: Padding fraction from edges
+            colour: Scalebar color
+            pixel_size: If provided, uses this pixel size in meters for raster images.
+                       If None, automatically detects from georeferenced data.
+        """
+        from matplotlib_scalebar.scalebar import ScaleBar
+        
+        # Case 1: Explicit pixel size provided (for raster images)
+        if pixel_size is not None:
+            scalebar = ScaleBar(
+                dx=pixel_size,
+                units='m',
+                location=location,
+                box_alpha=0,
+                length_fraction=0.15,
+                color=colour,
+                pad=pad
+            )
+            ax.add_artist(scalebar)
+            return
+        
+        # Case 2: Auto-detect from georeferenced data
+        try:
+            crs = getattr(ax, 'projection', None)
+            if ax.get_xlim()[1] - ax.get_xlim()[0] > 360:  # projected (meters)
+                scale = 1
+                units = 'm'
+            else:  # degrees
+                scale = 111_000
+                units = 'm'
+        except Exception:
+            scale = 1
+            units = 'm'
 
-        Parameters
-        ----------
-        ax : matplotlib.axes.Axes, optional
-            The axis to draw the arrow on. Uses current axis if None.
-        color : str
-            Arrow and text colour.
-        size : float, optional
-            Arrow length in axis fraction. Automatically scaled if None.
-        loc : str
-            Location: 'upper right', 'upper left', 'lower right', 'lower left'.
-        pad : float
-            Padding from plot edge in axis fraction.
+        scalebar = ScaleBar(scale, units, location=location, box_alpha=0, length_fraction=0.25, color=colour, pad=pad)
+        ax.add_artist(scalebar)
+
+
+    @staticmethod
+    def add_north_arrow(ax=None, color='black', size=None, location='lower right', pad=0.05):
+        """
+        Add a north arrow to a matplotlib plot.
+        Pad specifies the fraction of axes to inset the arrow from edges.
         """
         if ax is None:
             ax = plt.gca()
 
-        # Auto-size relative to plot dimensions
         if size is None:
             bbox = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted())
-            size = 0.1 * (bbox.height / bbox.width)  # scales arrow length to aspect ratio
+            size = 0.1 * (bbox.height / bbox.width)
 
-        # Map location to coordinates
         loc_map = {
-            'upper right':  (1 - pad - size, 1 - pad),
+            'upper right':  (1 - pad, 1 - pad),
             'upper left':   (pad + size, 1 - pad),
-            'lower right':  (1 - pad - size, pad + size),
+            'lower right':  (1 - pad, pad + size),
             'lower left':   (pad + size, pad + size)
         }
-        x, y = loc_map.get(loc, loc_map['upper right'])
+        x, y = loc_map.get(location, loc_map['upper right'])
 
-        # Draw arrow (pointing up)
+        scale_factor = max(1, size)
+
         ax.annotate('N',
                     xy=(x, y),
                     xytext=(x, y - size),
                     xycoords='axes fraction',
                     textcoords='axes fraction',
                     ha='center', va='center',
-                    fontsize=120*size,
+                    fontsize=10*scale_factor,
                     color=color,
-                    arrowprops=dict(facecolor=color, edgecolor=color, width=2, headwidth=10, headlength=10))
+                    arrowprops=dict(facecolor=color, edgecolor=color, width=2*scale_factor, headwidth=10*scale_factor, headlength=10*scale_factor))
 
         return ax
+    
+    @staticmethod
+    def add_geographic_labels(ax, raster_path, x_bounds=None, y_bounds=None, x_crop=(0, None), target_crs="EPSG:4326"):
+        """
+        Adds lat/lon labels to a raster plot in projected coordinates.
+        
+        Args:
+            ax: Matplotlib axis
+            raster_path: Path to the original raster file
+            x_bounds: Tuple of (x_min, x_max) pixel bounds used to crop the raster
+            y_bounds: Tuple of (y_min, y_max) pixel bounds used to crop the raster
+            x_crop: Tuple of (left_crop, right_crop) if additional cropping was done.
+                    e.g., [:,110:-110] would be (110, -110). Default (0, None) for no crop.
+            crs: Source CRS of the raster (default "EPSG:32652")
+            target_crs: Target CRS for labels (default "EPSG:4326" for lat/lon)
+        """
+        
+        # Get the transform from the original raster
+        with rasterio.open(raster_path) as src:
+            if x_bounds is None:
+                x_bounds = (0, src.width)
+                print(x_bounds)
+            if y_bounds is None:
+                y_bounds = (0, src.height)
+                print(y_bounds)
+            window_transform = src.window_transform(((y_bounds[0], y_bounds[1]), (x_bounds[0], x_bounds[1])))
+            crs = src.crs
+                
+        # Set up coordinate transformer
+        transformer = pyproj.Transformer.from_crs(crs, target_crs, always_xy=True)
+        
+        # Get current tick positions (in pixels)
+        y_ticks = ax.get_yticks()
+        x_ticks = ax.get_xticks()
+        
+        # Handle x_crop offset
+        x_offset = x_crop[0] if x_crop[0] is not None else 0
+        
+        # Convert pixel coordinates to geographic coordinates
+        def pixel_to_geo(px, py):
+            """Convert pixel coordinates to geographic coordinates"""
+            utm_x, utm_y = window_transform * (px + x_offset, py)
+            lon, lat = transformer.transform(utm_x, utm_y)
+            return lon, lat
+        
+        # Get image dimensions
+        img_height, img_width = ax.images[0].get_array().shape[:2]
+        
+        # Create geographic labels
+        x_labels = []
+        for x_px in x_ticks:
+            if 0 <= x_px < img_width:
+                lon, lat = pixel_to_geo(x_px, 0)
+                x_labels.append(f"{lon:4.2f}°")
+            else:
+                x_labels.append("")
+        
+        y_labels = []
+        for y_px in y_ticks:
+            if 0 <= y_px < img_height:
+                lon, lat = pixel_to_geo(0, y_px)
+                y_labels.append(f"{lat:4.2f}°")
+            else:
+                y_labels.append("")
+        
+        ax.set_xticklabels(x_labels)
+        ax.set_yticklabels(y_labels)
+        ax.set_xlabel("Longitude", fontsize=16)
+        ax.set_ylabel("Latitude", fontsize=16)

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 import json
 from pathlib import Path
+import os
 
 
 @dataclass
@@ -160,6 +161,7 @@ class PathConfig:
     stacked: str = 'data/stacked'
     derived: str = 'data/derived'
     classified: str = 'output/classified'
+    initial_analysis = 'output/initial_analysis'
     luc_analysis: str = 'output/luc_analysis'
     grid_analysis: str = 'output/grid_analysis'
     proximity_analysis: str = 'output/proximity_analysis'  # New: for proximity analysis
@@ -169,8 +171,9 @@ class PathConfig:
     tests: str = 'tests'
     envi: str = 'data/envi'
 
-    smoothed_stack_all_timestamps_file_path = 'output/classified/smoothed_stack.npy'
-    jungle_to_mine_change_tif_file_path = 'output/classified/jungle_to_mine_change.tif'
+    smoothed_stack_all_timestamps_file_path: str = 'output/classified/smoothed_stack.npy'
+    jungle_to_mine_change_tif_file_path: str = 'output/classified/jungle_to_mine_change.tif'
+    initial_analysis_all_stats_csv_file_path: str = os.path.join(initial_analysis, 'all_stats.csv')
     
     def get_path(self, key: str) -> Path:
         """Get Path object for a given key."""

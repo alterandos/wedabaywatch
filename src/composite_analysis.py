@@ -873,20 +873,6 @@ def plot_rois_on_basemap(rois_folder, rgb_path, roi_colours=None, title=None, hi
     then random colours once the predefined ones are exhausted.
     """
 
-    # if not roi_colours:
-    #     roi_colours = {
-    #         'close_forest_1': '#c8e667',
-    #         'close_forest_2': '#d4ee7a',
-    #         'greater_mine_site': '#8b5a2b',
-    #         'ocean_near_mine_site': '#1f77b4',
-    #         'river_outlet': '#5a7b8b',
-    #         'untouched_forest_1': '#006400',
-    #         'untouched_forest_2': '#004d00',
-    #         'untouched_forest_3': '#003300',
-    #         'water_body': '#008080',
-    #         'burnt_forest': '#8B0000'
-    #     }
-
     if alphas is None:
         alphas = {'default': 0.15, 'highlight': 0.95}
 
@@ -943,12 +929,7 @@ def plot_rois_on_basemap(rois_folder, rgb_path, roi_colours=None, title=None, hi
     ax.set_ylabel('Latitude')
 
     # Add white north arrow (bottom-right)
-    ax.annotate(
-        'N', xy=(0.97, 0.08), xytext=(0.97, 0.02),
-        arrowprops=dict(facecolor='white', edgecolor='white', width=6, headwidth=20),
-        ha='center', va='center', color='white', fontsize=18,
-        xycoords='axes fraction'
-    )
+    pipeline.PlotUtils.add_north_arrow(ax)
 
     # Legend outside on right
     ax.legend(
