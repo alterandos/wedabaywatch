@@ -53,6 +53,21 @@ def get_cloud_mask_from_stacked(img_name, img_folder_path = "data/stacked/"):
 
     return cloud_mask, na_mask
 
+def get_final_state(
+        path = "output/classified/jungle_to_mine_change.tif",
+        classes_for_reg = [1]
+):
+    with rasterio.open(path) as src:
+        initial_state = src.read(1)
+        final_state = src.read(2)
+        change_year = src.read(3)
+
+    forest_mask = (np.isin(final_state, classes_for_reg))
+    final_state_no_forest = final_state.astype(float)
+    final_state_no_forest[forest_mask] = np.nan 
+
+    return final_state, final_state_no_forest
+
 
 def extract_pixels_from_roi(img_name, 
                             roi_name, 

@@ -179,11 +179,13 @@ def get_final_state(
 
 def add_scalebar(ax, length_px, label="20km", pad=-20):
     """Add a simple horizontal scale bar."""
-    x0 = ax.get_xlim()[1] -100 - length_px
-    y0 = ax.get_ylim()[0] -50
-    ax.hlines(y=y0, xmin=x0+30, xmax=x0 + 30 + length_px, colors='black', linewidth=3)
-    ax.text(x0 + 15 + length_px / 2, y0 + pad * 0.5, label, ha='center', va='bottom', color='black', fontsize=10)
+    x_center = (ax.get_xlim()[0] + ax.get_xlim()[1]) / 2
+    y0 = ax.get_ylim()[0] - 50
+    x0 = x_center - length_px / 2
+    ax.hlines(y=y0, xmin=x0, xmax=x0 + length_px, colors='black', linewidth=3)
+    ax.text(x_center, y0 + pad * 0.5, label, ha='center', va='bottom', color='black', fontsize=10)
     return
+
 
 def plot_index(
         trend_stack,
@@ -192,7 +194,8 @@ def plot_index(
         scaling = 365*13, #make it over the 13-year period,
         borders=None,
         save_path = None,
-        figsize=None
+        figsize=None,
+        title=None
 ):
     """ Plot index, with the final states overlayed."""
 
@@ -216,11 +219,16 @@ def plot_index(
     #plt.hist(trend_stack_scaled.flatten())
 
     # Plot
+    if title is None:
+        title = index_name+" Decadal Trend Map"
+
     fig, ax = plt.subplots(figsize=(8, 6) if figsize is None else figsize)
     im = ax.imshow((trend_stack_scaled), cmap=cmap, norm=norm) 
     cbar = fig.colorbar(im, boundaries=bounds, ticks=bounds[1:-1])
     cbar.set_label(index_name + " Decadal Trend", fontsize=16)
-    ax.set_title(index_name+" Decadal Trend Map", fontsize=22, fontweight='bold')
+    ax.set_title(title, fontsize=22, fontweight='bold', pad=17)
+
+    pipeline.PlotUtils.add_north_arrow(ax)
 
     classes = {
         3: ("Cloud", "lightgrey"),

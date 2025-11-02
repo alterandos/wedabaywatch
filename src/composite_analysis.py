@@ -1,26 +1,24 @@
-import rasterio
-from rasterio.windows import Window
-from rasterio.merge import merge
-from rasterio.mask import mask
-from rasterio.features import geometry_mask, shapes
-from sklearn.linear_model import LinearRegression
-from scipy.stats import linregress
-import project_config
-
-from typing import Dict, Tuple, Optional
+import glob
+import os
+import random
+from typing import Dict, Optional, Tuple
 
 import contextily as ctx
-import random
-
 import geopandas as gpd
-import pandas as pd
-import numpy as np
-from src import pipeline
 import matplotlib.pyplot as plt
-from shapely.geometry import shape, box
+import numpy as np
+import pandas as pd
+import rasterio
+from rasterio.features import geometry_mask, shapes
+from rasterio.mask import mask
+from rasterio.merge import merge
+from rasterio.windows import Window
+from scipy.stats import linregress
+from shapely.geometry import box, shape
+from sklearn.linear_model import LinearRegression
 
-import os
-import glob
+import project_config
+from src import pipeline, pixel_regression
 
 # QA bit masks (Landsat Collection 2 Level 2)
 QA_BITS = {
@@ -943,3 +941,152 @@ def plot_rois_on_basemap(rois_folder, rgb_path, roi_colours=None, title=None, hi
 
     plt.tight_layout()
     plt.show()
+
+def plot_stretched_index(index_array, title, ax, cmap='Greys', percentile=(2, 98)):
+    """Plot index with percentile stretching."""
+    valid_data = index_array[~np.isnan(index_array)]
+    
+    if len(valid_data) == 0:
+        ax.imshow(index_array, cmap=cmap)
+        ax.set_title(title)
+        ax.axis('off')
+        return
+    
+    vmin, vmax = np.percentile(valid_data, percentile)
+    ax.imshow(index_array, cmap=cmap, vmin=vmin, vmax=vmax)
+    ax.set_title(title, fontsize=12, fontweight='bold')
+    ax.axis('off')
+
+
+def create_cloud_filled_composite(scene_list, derived_folder, clipped_folder, classified_state, classified_state_mask_values=[-1], index_name='BSI', mask_states=False):
+    """
+    Create composite by filling clouds with most recent valid pixel.
+    classified_state_water_value is a list containing the values you want to mask. Default is [-1]
+    """
+    scenes_data = []
+    
+    for scene in scene_list:
+        index_path = os.path.join(derived_folder, scene, index_name)
+        qa_path = os.path.join(clipped_folder, scene, 'QA_PIXEL')
+        
+        with rasterio.open(index_path) as src:
+            index_data = src.read(1).astype(float)
+
+        # print(f' == last mean is {np.nanmean(index_data)}')
+        
+        cloud_mask, _, _ = get_cloud_mask_from_qa_pixel_explicit(qa_path)
+        if mask_states:
+            mask = np.isin(classified_state, classified_state_mask_values)
+            index_data[mask] = np.nan
+
+        is_cloud = np.isin(cloud_mask, [1, 2])
+        index_data[is_cloud] = np.nan
+        # print(f' == masked mean is {np.nanmean(index_data)}')
+        
+        scenes_data.append(index_data)
+    
+    stack = np.stack(scenes_data, axis=0)
+    composite = np.full(stack.shape[1:], np.nan)
+    
+    for i in range(stack.shape[1]):
+        for j in range(stack.shape[2]):
+            pixel_timeseries = stack[:, i, j]
+            valid_mask = ~np.isnan(pixel_timeseries)
+            if valid_mask.any():
+                composite[i, j] = pixel_timeseries[valid_mask][0]
+    
+    return composite
+
+
+def plot_first_last_comparison(last_sorted, first, derived_folder, clipped_folder, classified_state, classified_state_mask_values=[-1], index_name='BSI', mask_states=False, cmap='RdYlBu_r', percentile=(2, 98)):
+    """
+    Plot first vs last comparison for a given index.
+    
+    Parameters
+    ----------
+    last_sorted : list
+        The last scene images
+    index_name : str
+        Index to plot (e.g., 'BSI', 'NDVI', 'EVI')
+    cmap : str
+        Matplotlib colormap (e.g., 'RdYlBu_r', 'RdYlGn', 'Greys')
+    percentile : tuple
+        (min, max) percentiles for stretching (default: (2, 98))
+    """
+    # Load first scene
+    print(f"Loading first {index_name}...")
+    first_index_path = os.path.join(derived_folder, first, index_name)
+    qa_path = os.path.join(clipped_folder, first, 'QA_PIXEL')
+    
+    cloud_mask, _, _ = get_cloud_mask_from_qa_pixel_explicit(qa_path)
+    with rasterio.open(first_index_path) as src:
+        first_index = src.read(1).astype(float)
+    # print(f' -- first mean is {np.nanmean(first_index)}')
+
+    if mask_states:
+        mask = np.isin(classified_state, classified_state_mask_values)
+        first_index[mask] = np.nan
+
+    is_cloud = np.isin(cloud_mask, [1, 2])
+    first_index[is_cloud] = np.nan
+    # print(f' -- masked first mean is {np.nanmean(first_index)}')
+    
+    # Create cloud-filled composite for last
+    print(f"Creating cloud-filled composite for last {index_name}...")
+    last_index_composite = create_cloud_filled_composite(last_sorted, derived_folder, clipped_folder, classified_state, classified_state_mask_values, index_name=index_name, mask_states=mask_states)
+    
+    first_date = pipeline.extract_scene_date(first)
+    last_date = pipeline.extract_scene_date(last_sorted[0])
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 10))
+
+    # Compute shared vmin/vmax
+    valid_first = first_index[~np.isnan(first_index)]
+    valid_last = last_index_composite[~np.isnan(last_index_composite)]
+    combined = np.concatenate([valid_first, valid_last])
+    vmin, vmax = np.percentile(combined, percentile)
+    
+
+    # Plot both using the same limits
+    im1 = axes[0].imshow(first_index, cmap=cmap, vmin=vmin, vmax=vmax)
+    axes[0].set_title(f'a) {index_name} - First Scene\n{first_date}', fontsize=16, fontweight='bold', pad=17)
+    axes[0].axis('off')
+
+    pipeline.PlotUtils.add_north_arrow(axes[0])
+    # pipeline.PlotUtils.add_scalebar(axes[0])
+    pixel_size = 30  # meters per pixel
+    scalebar_length_m = 20000
+    scalebar_length_px = scalebar_length_m / pixel_size
+    pixel_regression.add_scalebar(axes[0], scalebar_length_px, label = "20km")
+
+    im2 = axes[1].imshow(last_index_composite, cmap=cmap, vmin=vmin, vmax=vmax)
+    axes[1].set_title(f'b) {index_name} - Last Scene\n{last_date}', fontsize=16, fontweight='bold', pad=17)
+    axes[1].axis('off')
+    pipeline.PlotUtils.add_north_arrow(axes[1])
+    # pipeline.PlotUtils.add_scalebar(axes[1])
+    pixel_regression.add_scalebar(axes[1], scalebar_length_px, label = "20km")
+
+
+    # Shared colorbar
+    cax = fig.add_axes([0.15, -0.03, 0.7, 0.03])   # <-- reduce the 2nd value to move lower
+    cbar = fig.colorbar(im2, cax=cax, orientation='horizontal')
+    cbar.set_label(f'{index_name} value')
+
+    plt.subplots_adjust(bottom=0.18)
+    plt.tight_layout()
+    plt.show()
+
+    # Print statistics
+    print("\n" + "="*60)
+    print(f"{index_name} STATISTICS")
+    print("="*60)
+    print(f"\nFirst scene ({first_date}):")
+    print(f"  Mean: {np.nanmean(first_index):.3f}")
+    print(f"  Std:  {np.nanstd(first_index):.3f}")
+    print(f"  Valid pixels: {np.sum(~np.isnan(first_index)):,}")
+    
+    print(f"\nLast composite ({last_date}):")
+    print(f"  Mean: {np.nanmean(last_index_composite):.3f}")
+    print(f"  Std:  {np.nanstd(last_index_composite):.3f}")
+    print(f"  Valid pixels: {np.sum(~np.isnan(last_index_composite)):,}")
+    print(f"  Remaining NaN: {np.sum(np.isnan(last_index_composite)):,}")
