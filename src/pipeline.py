@@ -206,10 +206,6 @@ def compute_composite_from_stack_and_save(stack_path, out_path, composite_name, 
             composite = np.stack([red, green, blue])
 
         case 'NDVI':
-            # composite = np.where(
-            #     (nir + red) == 0, np.nan,
-            #     (nir - red) / (nir + red)
-            # )
             composite = (nir - red) / (nir + red + tiny_offset)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
@@ -226,25 +222,19 @@ def compute_composite_from_stack_and_save(stack_path, out_path, composite_name, 
             profile.update(dtype='float32')
 
         case 'NDBI':
-            # composite = np.where(
-            #     (swir + nir) == 0, np.nan,
-            #     (swir - nir) / (swir + nir)
-            # )
             composite = (swir - nir) / (swir + nir + tiny_offset)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'MNDWI':
-            # composite = np.where(
-            #     (green + swir) == 0, np.nan,
-            #     (green - swir) / (green + swir)
-            # )
             composite = (green - swir) / (green + swir + tiny_offset)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
         case 'FERRIC_IRON':
-            composite = red/(green+1e-7)
+            composite = np.where(green == 0, 
+                                 np.nan,
+                                 red / green)
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
         
@@ -258,6 +248,13 @@ def compute_composite_from_stack_and_save(stack_path, out_path, composite_name, 
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
+        case 'SR': # Simple ratio index
+            composite = np.where(red == 0, 
+                                 np.nan,
+                                 nir / red)
+            composite = composite[np.newaxis, :, :]
+            profile.update(dtype='float32')
+
         case 'NDGI':  # Normalized Difference Greenness Index
             composite = (green - red) / (green + red + tiny_offset)
             composite = composite[np.newaxis, :, :]
@@ -268,10 +265,23 @@ def compute_composite_from_stack_and_save(stack_path, out_path, composite_name, 
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
-        case 'CMI':  # Clay Mineral Index
-            composite = (swir - nir) / (swir + nir + tiny_offset)
+        case 'BSI':
+            composite = ((swir + red) - (nir + blue)) / ((swir + red) + (nir + blue))
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
+
+        case 'FeO':
+            composite = np.where(blue == 0, 
+                                 np.nan,
+                                 red / blue)
+            composite = composite[np.newaxis, :, :]
+            profile.update(dtype='float32')
+
+        # CMI is the same as NDBI
+        # case 'CMI':  # Clay Mineral Index
+        #     composite = (swir - nir) / (swir + nir + tiny_offset)
+        #     composite = composite[np.newaxis, :, :]
+        #     profile.update(dtype='float32')
 
         case _:
             raise ValueError(f"Unsupported composite/index: {composite_name}")
@@ -459,7 +469,7 @@ class PlotUtils:
                     arrowprops=dict(facecolor=color, edgecolor=color, width=2*scale_factor, headwidth=10*scale_factor, headlength=10*scale_factor))
 
         return ax
-    
+
     @staticmethod
     def add_geographic_labels(ax, raster_path, x_bounds=None, y_bounds=None, x_crop=(0, None), target_crs="EPSG:4326"):
         """

@@ -803,7 +803,7 @@ def calculate_linear_trend(df, composite, roi, plot=False):
     return slope, intercept, r_value**2, p_value
 
 
-def plot_roi_timeseries(df, rois, roi_colours, roi_comparisons=None, ylabel='', title='', comparison_alpha=0.1):
+def plot_roi_timeseries(df, rois, roi_colours, roi_comparisons=None, ylabel='', title='', comparison_alpha=0.1, figsize=None):
     """
     Plot NDVI (or other index) over time for a subset of ROIs.
 
@@ -823,7 +823,7 @@ def plot_roi_timeseries(df, rois, roi_colours, roi_comparisons=None, ylabel='', 
     df.index = pd.to_datetime(df.index.astype(str), format='%Y%m%d', errors='coerce')
     df = df[df.index.notna()]
 
-    fig, ax = plt.subplots(figsize=(16, 10))
+    fig, ax = plt.subplots(figsize=(16, 10) if figsize is None else figsize)
 
     for roi in rois:
         if roi not in df.columns:
@@ -889,7 +889,7 @@ def plot_rois_on_basemap(rois_folder, rgb_path, roi_colours=None, title=None, hi
     ax.imshow(rgb, extent=extent)
     ax.axis('off')
     if title:
-        ax.set_title(title, fontsize=24)
+        ax.set_title(title, fontsize=24, fontweight='bold', pad=17)
     else:
         ax.set_title('RGB Scene with ROIs', fontsize=24)
 
@@ -929,7 +929,9 @@ def plot_rois_on_basemap(rois_folder, rgb_path, roi_colours=None, title=None, hi
     ax.set_ylabel('Latitude')
 
     # Add white north arrow (bottom-right)
-    pipeline.PlotUtils.add_north_arrow(ax)
+    pipeline.PlotUtils.add_north_arrow(ax, color='white')
+    pipeline.PlotUtils.add_scalebar(ax, colour='white')
+    pipeline.PlotUtils.add_geographic_labels(ax, rgb_path)
 
     # Legend outside on right
     ax.legend(

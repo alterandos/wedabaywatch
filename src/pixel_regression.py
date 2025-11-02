@@ -153,9 +153,10 @@ def calculate_trend(
 
 
         # print progress
-        if y % 100 == 99:
-            comp_perc = int(100*y/H)
-            print(f"{comp_perc}% complete")
+        if False:
+            if y % 100 == 99:
+                comp_perc = int(100*y/H)
+                print(f"{comp_perc}% complete")
 
     return trend_stack, intercept_stack
 
@@ -189,7 +190,9 @@ def plot_index(
         final_state_no_forest,
         index_name,
         scaling = 365*13, #make it over the 13-year period,
-        save_path = None
+        borders=None,
+        save_path = None,
+        figsize=None
 ):
     """ Plot index, with the final states overlayed."""
 
@@ -203,15 +206,7 @@ def plot_index(
     half_bin_width = sigfig.round(((trend_median - trend_10pct)/2),sigfigs = 1)
 
     bounds = [-9999, -3*half_bin_width, -half_bin_width,  half_bin_width, 3*half_bin_width, 9999]
-    #bounds = [-9999, np.nanpercentile(trend_stack_scaled,25), trend_median,  np.nanpercentile(trend_stack_scaled,75), 9998.5, 9999]
-    #bounds = [-9999, trend_median,  9998.5, 9999]
 
-
-    #if np.abs(trend_median) > half_bin_width*3:
-    #    trend_median_rounded = sigfig.round(trend_median, sigfigs = 1)
-    #    bounds =  bounds + trend_median_rounded
-
-    # Define the colors for each range (one fewer than the number of bounds)
     cmap_colors = ['#e66158', '#f4a582', "#F3E8B3", '#b8e186', '#4d9221']
 
     # Create colormap and normalization
@@ -221,10 +216,11 @@ def plot_index(
     #plt.hist(trend_stack_scaled.flatten())
 
     # Plot
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(8, 6) if figsize is None else figsize)
     im = ax.imshow((trend_stack_scaled), cmap=cmap, norm=norm) 
-    fig.colorbar(im, boundaries=bounds, ticks=bounds[1:-1], label=index_name+" Decadal Trend")
-    ax.set_title(index_name+" Decadal Trend Map")
+    cbar = fig.colorbar(im, boundaries=bounds, ticks=bounds[1:-1])
+    cbar.set_label(index_name + " Decadal Trend", fontsize=16)
+    ax.set_title(index_name+" Decadal Trend Map", fontsize=22, fontweight='bold')
 
     classes = {
         3: ("Cloud", "lightgrey"),
@@ -260,7 +256,6 @@ def plot_index(
     scalebar_length_m = 20000
     scalebar_length_px = scalebar_length_m / pixel_size
 
-
     # Your custom add_scalebar function (assumes it’s defined somewhere)
     add_scalebar(ax, scalebar_length_px, label = "20km")
 
@@ -268,7 +263,7 @@ def plot_index(
         fig.show()
     else:
         fig.savefig(save_path)
-    return
+    return ax
 
 
 def calculate_distance(
@@ -332,4 +327,45 @@ def pixel_regression(
     
     return trend_stack, intercept_stack, dist_plot    
     
-
+def plot_polygon_borders(gdf, ax, values_to_plot, color_map, linewidth=2, flip_y=True):
+    """
+    Plot polygon borders on an existing matplotlib axis.
+    
+    Parameters:
+    -----------
+    gdf : GeoDataFrame
+        GeoDataFrame containing polygons with a 'value' column
+    ax : matplotlib axis
+        Existing axis to plot on
+    values_to_plot : list
+        List of values to plot (e.g., [-1] or [-1, 0, 2])
+    color_map : dict
+        Dictionary mapping values to colors (e.g., {-1: 'blue', 0: 'green'})
+    linewidth : float, optional
+        Width of the polygon borders (default: 2)
+    flip_y : bool, optional
+        Whether to flip y-coordinates (default: True)
+    
+    Returns:
+    --------
+    ax : matplotlib axis
+        The axis with polygons plotted
+    """
+    # Get the y-axis limits to flip coordinates if needed
+    if flip_y:
+        ylim = ax.get_ylim()
+        y_max = max(ylim)
+    
+    for value in values_to_plot:
+        if value in gdf['value'].values:
+            subset = gdf[gdf['value'] == value]
+            # Plot directly on the provided axis
+            for geom in subset.geometry:
+                x, y = geom.exterior.xy
+                if flip_y:
+                    # Flip y coordinates
+                    y = [y_max - yi for yi in y]
+                ax.plot(x, y, color=color_map.get(value, 'black'), 
+                       linewidth=linewidth, label=f'Value: {value}')
+    
+    return ax

@@ -95,9 +95,8 @@ class BandMap:
 class CompositeConfig:
     """Configuration for spectral indices and composites."""
     enabled: List[str] = field(default_factory=lambda: [
-        'RGB', 'NDVI', 'MNDWI', 'NDBI', 'EVI', 'SAVI', 
-        'FERRIC_IRON', 'BAI', 'SI', 'NDGI', 'NDMI', 'CMI'
-    ])
+        'RGB', 'NDVI', 'MNDWI', 'NDBI', 'EVI', 'SAVI', 'FERRIC_IRON', 'BAI', 'SI', 'NDGI', 'NDMI', 'SR', 'BSI', 'FeO'
+    ]) # CMI (same as NDBI)
     
     # Define which composites to use for specific analyses
     vegetation_indices: List[str] = field(default_factory=lambda: ['NDVI', 'EVI', 'SAVI', 'NDGI'])
@@ -161,7 +160,8 @@ class PathConfig:
     stacked: str = 'data/stacked'
     derived: str = 'data/derived'
     classified: str = 'output/classified'
-    initial_analysis = 'output/initial_analysis'
+    initial_analysis: str = 'output/initial_analysis'
+    pixel_regression: str = 'output/pixel_regression'
     luc_analysis: str = 'output/luc_analysis'
     grid_analysis: str = 'output/grid_analysis'
     proximity_analysis: str = 'output/proximity_analysis'  # New: for proximity analysis
@@ -173,7 +173,11 @@ class PathConfig:
 
     smoothed_stack_all_timestamps_file_path: str = 'output/classified/smoothed_stack.npy'
     jungle_to_mine_change_tif_file_path: str = 'output/classified/jungle_to_mine_change.tif'
-    initial_analysis_all_stats_csv_file_path: str = os.path.join(initial_analysis, 'all_stats.csv')
+    initial_analysis_all_stats_pkl_file_path: str = os.path.join(initial_analysis, 'all_stats.pkl')
+    example_rgb_image_1: str = os.path.join(derived, 'LC08_L2SP_109060_20230506_20230509_02_T1/RGB')
+    example_rgb_image_2: str = os.path.join(derived, 'LC08_L2SP_109060_20160603_20200907_02_T1/RGB')
+
+    last_image: str = os.path.join(derived, 'LC09_L2SP_109060_20250722_20250725_02_T1')
     
     def get_path(self, key: str) -> Path:
         """Get Path object for a given key."""

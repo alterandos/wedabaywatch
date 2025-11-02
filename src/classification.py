@@ -3,6 +3,9 @@ import os
 import numpy as np
 import rasterio
 from rasterio.plot import reshape_as_image
+from rasterio import features
+from rasterio.transform import Affine
+from shapely.geometry import shape
 
 import matplotlib.pyplot as plt
 import geopandas as gpd
@@ -239,3 +242,40 @@ def train_and_classify(roi_sources,
                      cloud_masking = cloud_masking)
     
     return len(os.listdir(img_folder_path))
+
+def array_to_polygons(array):
+    """
+    Convert a numpy array to a GeoDataFrame of polygons.
+    Each polygon represents a contiguous region of the same value.
+    """
+    polygons = []
+    values = []
+    
+    # Flip the array vertically to correct the orientation
+    array = np.flipud(array)
+    
+    # Create an identity transform (simple pixel coordinates)
+    transform = Affine.identity()
+    
+    # Get unique values in the array
+    unique_values = np.unique(array)
+    
+    for value in unique_values:
+        # Create a binary mask for this value
+        mask = (array == value).astype(np.uint8)
+        
+        # Extract shapes (polygons) from the mask
+        shapes_gen = features.shapes(mask, transform=transform)
+        
+        for geom, val in shapes_gen:
+            if val == 1:  # Only get polygons where mask is True
+                polygons.append(shape(geom))
+                values.append(value)
+    
+    # Create GeoDataFrame
+    gdf = gpd.GeoDataFrame({
+        'value': values,
+        'geometry': polygons
+    })
+    
+    return gdf
