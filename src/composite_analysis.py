@@ -998,7 +998,7 @@ def create_cloud_filled_composite(scene_list, derived_folder, clipped_folder, cl
     return composite
 
 
-def plot_first_last_comparison(last_sorted, first, derived_folder, clipped_folder, classified_state, classified_state_mask_values=[-1], index_name='BSI', mask_states=False, cmap='RdYlBu_r', percentile=(2, 98)):
+def plot_first_last_comparison(last, first, derived_folder, clipped_folder, classified_state, classified_state_mask_values=[-1], index_name='BSI', mask_states=False, cmap='RdYlBu_r', percentile=(2, 98)):
     """
     Plot first vs last comparison for a given index.
     
@@ -1013,42 +1013,28 @@ def plot_first_last_comparison(last_sorted, first, derived_folder, clipped_folde
     percentile : tuple
         (min, max) percentiles for stretching (default: (2, 98))
     """
-    # Load first scene
-    print(f"Loading first {index_name}...")
-    first_index_path = os.path.join(derived_folder, first, index_name)
-    qa_path = os.path.join(clipped_folder, first, 'QA_PIXEL')
     
-    cloud_mask, _, _ = get_cloud_mask_from_qa_pixel_explicit(qa_path)
-    with rasterio.open(first_index_path) as src:
-        first_index = src.read(1).astype(float)
-    # print(f' -- first mean is {np.nanmean(first_index)}')
+    # Create cloud-filled composite for first
+    print(f"Creating cloud-filled composite for first {index_name}...")
+    first_index_composite = create_cloud_filled_composite(first, derived_folder, clipped_folder, classified_state, classified_state_mask_values, index_name=index_name, mask_states=mask_states)
 
-    if mask_states:
-        mask = np.isin(classified_state, classified_state_mask_values)
-        first_index[mask] = np.nan
-
-    is_cloud = np.isin(cloud_mask, [1, 2])
-    first_index[is_cloud] = np.nan
-    # print(f' -- masked first mean is {np.nanmean(first_index)}')
-    
-    # Create cloud-filled composite for last
     print(f"Creating cloud-filled composite for last {index_name}...")
-    last_index_composite = create_cloud_filled_composite(last_sorted, derived_folder, clipped_folder, classified_state, classified_state_mask_values, index_name=index_name, mask_states=mask_states)
+    last_index_composite = create_cloud_filled_composite(last, derived_folder, clipped_folder, classified_state, classified_state_mask_values, index_name=index_name, mask_states=mask_states)
     
-    first_date = pipeline.extract_scene_date(first)
-    last_date = pipeline.extract_scene_date(last_sorted[0])
+    first_date = pipeline.extract_scene_date(first[0])
+    last_date = pipeline.extract_scene_date(last[0])
 
     fig, axes = plt.subplots(1, 2, figsize=(16, 10))
 
     # Compute shared vmin/vmax
-    valid_first = first_index[~np.isnan(first_index)]
+    valid_first = first_index_composite[~np.isnan(first_index_composite)]
     valid_last = last_index_composite[~np.isnan(last_index_composite)]
     combined = np.concatenate([valid_first, valid_last])
     vmin, vmax = np.percentile(combined, percentile)
     
 
     # Plot both using the same limits
-    im1 = axes[0].imshow(first_index, cmap=cmap, vmin=vmin, vmax=vmax)
+    im1 = axes[0].imshow(first_index_composite, cmap=cmap, vmin=vmin, vmax=vmax)
     axes[0].set_title(f'a) {index_name} - First Scene\n{first_date}', fontsize=16, fontweight='bold', pad=17)
     axes[0].axis('off')
 
@@ -1081,9 +1067,9 @@ def plot_first_last_comparison(last_sorted, first, derived_folder, clipped_folde
     print(f"{index_name} STATISTICS")
     print("="*60)
     print(f"\nFirst scene ({first_date}):")
-    print(f"  Mean: {np.nanmean(first_index):.3f}")
-    print(f"  Std:  {np.nanstd(first_index):.3f}")
-    print(f"  Valid pixels: {np.sum(~np.isnan(first_index)):,}")
+    print(f"  Mean: {np.nanmean(first_index_composite):.3f}")
+    print(f"  Std:  {np.nanstd(first_index_composite):.3f}")
+    print(f"  Valid pixels: {np.sum(~np.isnan(first_index_composite)):,}")
     
     print(f"\nLast composite ({last_date}):")
     print(f"  Mean: {np.nanmean(last_index_composite):.3f}")

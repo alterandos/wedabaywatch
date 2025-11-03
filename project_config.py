@@ -95,7 +95,7 @@ class BandMap:
 class CompositeConfig:
     """Configuration for spectral indices and composites."""
     enabled: List[str] = field(default_factory=lambda: [
-        'RGB', 'NDVI', 'MNDWI', 'NDBI', 'EVI', 'SAVI', 'FERRIC_IRON', 'BAI', 'SI', 'NDGI', 'NDMI', 'SR', 'BSI', 'FeO'
+        'RGB', 'NDVI', 'MNDWI', 'NDBI', 'EVI', 'SAVI', 'FERRIC_IRON', 'BAI', 'SI', 'NDGI', 'NDMI', 'SR', 'BSI', 'FeO', 'NDTI'
     ]) # CMI (same as NDBI)
     
     # Define which composites to use for specific analyses

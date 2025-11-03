@@ -224,7 +224,7 @@ def train_and_classify(roi_sources,
                        classified_folder_path = "output/classified/",
                        cloud_masking = True,
                        plot = False,
-                       replace_existing = True
+                       replace_existing = False
                        ):
     """ Combine functions to build full classification pipeline """
 

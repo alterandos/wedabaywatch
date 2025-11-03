@@ -277,6 +277,13 @@ def compute_composite_from_stack_and_save(stack_path, out_path, composite_name, 
             composite = composite[np.newaxis, :, :]
             profile.update(dtype='float32')
 
+        case 'NDTI':
+            composite = np.where(red + green == 0, 
+                                 np.nan,
+                                 (red - green) / (red + green))
+            composite = composite[np.newaxis, :, :]
+            profile.update(dtype='float32')
+
         # CMI is the same as NDBI
         # case 'CMI':  # Clay Mineral Index
         #     composite = (swir - nir) / (swir + nir + tiny_offset)
